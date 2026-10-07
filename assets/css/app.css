@@ -140,8 +140,8 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 /* ===== 시험 화면 ===== */
 .exam { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
 .exam-head {
-  height: 58px; flex: 0 0 auto; background: var(--navy); color: #fff;
-  display: flex; align-items: center; padding: 0 16px; gap: 16px;
+  height: calc(58px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); flex: 0 0 auto; background: var(--navy); color: #fff;
+  display: flex; align-items: center; padding-inline: 16px; gap: 16px;
 }
 .exam-head .title { font-weight: 700; font-size: 15px; white-space: nowrap; }
 .exam-head .title small { display: block; font-weight: 500; font-size: 11.5px; opacity: .7; line-height: 1.2; }
@@ -194,8 +194,8 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 .omr-legend { display: flex; gap: 10px; font-size: 11.5px; color: var(--ink-3); flex-wrap: wrap; }
 .omr-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 3px; }
 .exam-foot {
-  flex: 0 0 auto; height: 60px; background: #fff; border-top: 1px solid var(--line);
-  display: flex; align-items: center; gap: 10px; padding: 0 16px;
+  flex: 0 0 auto; height: calc(60px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); background: #fff; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 10px; padding-inline: 16px;
 }
 .exam-foot .spacer { flex: 1; }
 .palette { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; flex: 1; overflow: hidden; max-height: 52px; }
@@ -382,7 +382,7 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
   .pane.passage { border-right: 0; border-bottom: 1px solid var(--line); }
   .omr { display: none; }
   .exam-main { overflow: auto; }
-  .exam-head { gap: 8px; padding: 0 10px; }
+  .exam-head { gap: 8px; padding-inline: 10px; }
   .exam-head .title { display: none; }
   .timer { min-width: 90px; }
   .timer .val { font-size: 18px; }
@@ -392,7 +392,7 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
   .mobile-banner { display: block; background: #fff3cd; color: #6b4e00; font-size: 12.5px; text-align: center; padding: 6px 10px; }
   .palette { display: flex; flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; max-height: none; padding: 2px; }
   .palette button { flex: 0 0 auto; }
-  .exam-foot { gap: 6px; padding: 0 8px; }
+  .exam-foot { gap: 6px; padding-inline: 8px; }
   .exam-foot .btn { padding: 8px 10px; min-height: 38px; }
   .btn.foot-end { display: inline-flex; }
   .exam-tools { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }

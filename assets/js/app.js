@@ -28,6 +28,8 @@
     total110: { name: '합산 110분', total: 110 },
     total80: { name: '합산 80분', total: 80 }
   };
+  // 아티팩트(claude.ai) 같은 내장 화면에서는 인쇄 창과 카메라가 막혀 있어 해당 기능 대신 안내만 보여 준다.
+  var EMBEDDED = window.HMAT_ENV === 'artifact';
   var PAGE_SECONDS = [165, 90]; // 페이지 제한시간(모의값): Ⅰ부 3묶음, Ⅱ부 10문항
   var PART2_PER_PAGE = 10, PART1_PER_PAGE = 3;
 
@@ -181,7 +183,7 @@
     h += '<div class="setting"><label class="title">인성 Ⅱ부 응답</label>' + seg('part2', [['yn', '예/아니오'], ['l4', '4점'], ['l5', '5점']]) + '</div>';
     h += '<div class="setting"><label class="title">인성 시간</label>' + seg('persTiming', [['split', '50분+45분'], ['total110', '합산 110분'], ['total80', '합산 80분']]) + '</div>';
     h += '<div class="setting"><label class="title">인성 페이지 제한시간</label>' + seg('pageTimer', [[true, '사용(Ⅰ ' + PAGE_SECONDS[0] + '초·Ⅱ ' + PAGE_SECONDS[1] + '초)'], [false, '사용 안 함']]) + '</div>';
-    h += '</div><div class="center-actions" style="justify-content:flex-start"><button class="btn small" data-act="reset-settings">기본값으로</button><a class="btn small" href="print-sheet.html" target="_blank" rel="noopener">연습장 양식 인쇄</a>' + (hist.length ? '<button class="btn small" data-act="history">응시 기록 (' + hist.length + ')</button>' : '') + '</div></div>';
+    h += '</div><div class="center-actions" style="justify-content:flex-start"><button class="btn small" data-act="reset-settings">기본값으로</button>' + (EMBEDDED ? '<span class="small muted" style="align-self:center">연습장: A4 백지나 모눈종이 2장을 준비하세요.</span>' : '<a class="btn small" href="print-sheet.html" target="_blank" rel="noopener">연습장 양식 인쇄</a>') + (hist.length ? '<button class="btn small" data-act="history">응시 기록 (' + hist.length + ')</button>' : '') + '</div></div>';
 
     h += '<div class="card"><h2>이용 전 알아둘 점</h2><ul class="rules-list small">';
     h += '<li>공개 응시 후기·교재 정보를 근거로 구성했으며, 실제 HMAT 화면과 문항 수·시간이 다를 수 있습니다. 근거 수준은 상단 <a href="#" data-act="about">시험 구성·근거</a>에서 확인하세요.</li>';
@@ -307,8 +309,9 @@
     ];
     var h = '<div class="page">' + pageHead(titleOf()) + '<main class="page-body">' + stepBar('precheck') + '<div class="card"><h2>사전 점검</h2><p class="muted small">실제 시험에서는 전날까지 PC 사양·접속 사전 테스트를 마쳐야 합니다. 이 화면은 그 과정을 간단히 흉내 냅니다.</p><ul class="checklist">';
     items.forEach(function (it) { h += '<li class="' + (it[0] ? 'ok' : 'ng') + '"><b style="min-width:92px">' + (it[0] ? '✔ ' : '! ') + it[1] + '</b><span>' + esc(it[2]) + '</span></li>'; });
-    h += '</ul><h3>카메라 미리보기 (선택)</h3><p class="small muted">실제 시험은 웹캠과 휴대폰 카메라로 감독합니다. 아래 버튼은 이 기기에서만 미리보기를 보여 주며 영상은 저장·전송되지 않습니다.</p>';
-    h += '<div class="form-row"><button class="btn small" data-act="cam">카메라 미리보기 켜기</button><video class="cam-preview hidden" autoplay muted playsinline></video></div>';
+    if (EMBEDDED) h += '</ul><p class="small muted">실제 시험은 웹캠과 휴대폰 카메라로 감독합니다. 이 화면에서는 카메라를 쓰지 않습니다.</p>';
+    else h += '</ul><h3>카메라 미리보기 (선택)</h3><p class="small muted">실제 시험은 웹캠과 휴대폰 카메라로 감독합니다. 아래 버튼은 이 기기에서만 미리보기를 보여 주며 영상은 저장·전송되지 않습니다.</p>';
+    if (!EMBEDDED) h += '<div class="form-row"><button class="btn small" data-act="cam">카메라 미리보기 켜기</button><video class="cam-preview hidden" autoplay muted playsinline></video></div>';
     h += '<div class="center-actions"><button class="btn" data-act="home">처음으로</button><button class="btn primary" data-act="goto" data-stage="checkin">다음</button></div></div></main>' + footer() + '</div>';
     show(h);
   }
