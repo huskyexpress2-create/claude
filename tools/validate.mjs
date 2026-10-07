@@ -35,7 +35,8 @@ const TAG_OK = /^<\/?(b|u|br|sup|sub|i|em|strong)\s*\/?>$/;
 
 function checkRich(where, s) {
   if (typeof s !== 'string') return;
-  for (const m of s.matchAll(/<[^>]*>/g)) if (!TAG_OK.test(m[0])) err(`${where}: 허용되지 않은 태그 ${m[0]}`);
+  // 한글 꺾쇠 표기(<표>, <보기>)는 글자 그대로 표시되므로 영문 HTML 태그만 검사한다.
+  for (const m of s.matchAll(/<\/?[a-zA-Z][^>]*>/g)) if (!TAG_OK.test(m[0])) err(`${where}: 허용되지 않은 태그 ${m[0]}`);
 }
 
 function checkChart(where, c) {

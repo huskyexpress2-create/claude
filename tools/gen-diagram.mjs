@@ -162,7 +162,7 @@ function gridBody(g, x, y, cell) {
     if (v === 2) s += `<circle cx="${R1(X + cell / 2)}" cy="${R1(Y + cell / 2)}" r="${R1(cell * 0.29)}" fill="#ffffff" stroke="${INK}" stroke-width="2"/>`;
     if (v === 3) {
       const d = cell * 0.25, mx = X + cell / 2, my = Y + cell / 2;
-      s += `<path d="M ${R1(mx - d)} ${R1(my - d)} L ${R1(mx + d)} ${R1(my + d)} M ${R1(mx + d)} ${R1(my - d)} L ${R1(mx - d)} ${R1(my + d)}" stroke="${INK}" stroke-width="2.2" stroke-linecap="round" fill="none"/>`;
+      s += `<path d="M ${R1(mx - d)} ${R1(my - d)} L ${R1(mx + d)} ${R1(my + d)} M ${R1(mx + d)} ${R1(my - d)} L ${R1(mx - d)} ${R1(my + d)}" stroke="${INK}" stroke-width="2" stroke-linecap="round" fill="none"/>`;
     }
   }
   s += `<rect x="${R1(x)}" y="${R1(y)}" width="${cell * 3}" height="${cell * 3}" fill="none" stroke="${INK}" stroke-width="2"/>`;
@@ -201,7 +201,6 @@ const colRight = gperm((r, c) => [r, (c + 2) % 3]);
 const transp = gperm((r, c) => [c, r]);
 const antiTransp = gperm((r, c) => [2 - c, 2 - r]);
 const invert = (g) => g.map((v) => (v === 0 ? 1 : v === 1 ? 0 : v));
-const fillEmptyOnly = (g) => g.map((v) => (v === 0 ? 1 : v));
 
 /* ------------------------------------------------------------------ */
 /* 도메인(문자열 / 격자)                                                */
@@ -219,7 +218,9 @@ const GRID = {
   box: { w: 60, h: 60 },
   same: (a, b) => a.join('') === b.join(''),
   key: (a) => a.join(''),
-  ok: () => true,
+  // 정상 격자는 모두 채운 칸 3~4개, 원 1개, X 1개다(입력이 3~4개이고 색 반전은 3↔4로만 바꾼다).
+  // 이 범위를 벗어난 오답은 한눈에 걸러지므로 쓰지 않는다.
+  ok: (g) => { const f = g.filter((v) => v === 1).length; return (f === 3 || f === 4) && g.filter((v) => v === 2).length === 1 && g.filter((v) => v === 3).length === 1; },
   noun: '격자',
 };
 function posOf(g, v) { const i = g.indexOf(v); return i < 0 ? null : [Math.floor(i / 3) + 1, (i % 3) + 1]; }
@@ -282,7 +283,7 @@ const SET2 = makeSet({
       errs: [{ f: mirUD, why: '흰 삼각형을 상하 대칭으로 착각한', how: '위아래로 뒤집은' }] },
     { key: 'C', name: '회색 사각형', shape: 'square', fill: 'mid', desc: '채운 칸은 비우고 빈 칸은 채운다. 원·X 표시 칸은 그대로 둔다.', example: '채운 칸 ↔ 빈 칸, 표시 칸은 그대로',
       short: '색 반전', invShort: '색 반전', f: invert, inv: invert,
-      errs: [{ f: fillEmptyOnly, why: '회색 사각형에서 빈 칸만 채우고 채운 칸은 비우지 않은', how: '빈 칸만 채운' }] },
+      errs: [] },
     { key: 'D', name: '흰 육각형', shape: 'hexagon', fill: 'white', desc: '모든 행을 아래로 한 칸씩 옮긴다. 맨 아래 3행은 맨 위 1행 자리로 올라간다.', example: '1행 → 2행, 2행 → 3행, 3행 → 1행',
       short: '행을 아래로 한 칸 이동', invShort: '행을 위로 한 칸 이동', f: rowDown, inv: rowUp,
       errs: [{ f: rowUp, why: '흰 육각형에서 행을 위로 옮긴', how: '행을 위로 옮긴' }, { f: colRight, why: '흰 육각형에서 행 대신 열을 옮긴', how: '행 대신 열을 옮긴' }] },
@@ -454,7 +455,7 @@ function twoRowSvg(S, rows) {
     const f = flowBody(S, r.prog, r.inp, r.out, 44, y);
     const cy = y + Math.max(S.dom.box.h / 2 + 22, 0);
     body += txt(20, cy + 5, r.label, { size: 15, weight: 700 }) + f.body;
-    if (i < rows.length - 1) body += `<line x1="8" y1="${R1(y + f.h + 4)}" x2="${R1(f.w)}" y2="${R1(y + f.h + 4)}" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="3 3"/>`;
+    if (i < rows.length - 1) body += `<line x1="8" y1="${R1(y + f.h + 4)}" x2="${R1(f.w)}" y2="${R1(y + f.h + 4)}" stroke="${INK}" stroke-width="1.5" stroke-dasharray="2 6"/>`;
     y += f.h + 8; w = Math.max(w, f.w);
   });
   return svgDoc(w, y - 4, body);
@@ -464,7 +465,7 @@ function symbolChoiceSvg(sym) {
 }
 function pairChoiceSvg(S, a, b) {
   const one = (cx, label, sym) => txt(cx, 15, label, { size: 12, weight: 700, fill: SUB }) + iconShape(sym, cx, 40, 15) + txt(cx, 74, sym.name, { size: 12, weight: 700 });
-  return svgDoc(200, 82, one(50, '(가)', S.map[a]) + seg(100, 10, 100, 72, 1) + one(150, '(나)', S.map[b]));
+  return svgDoc(200, 82, one(50, '(가)', S.map[a]) + seg(100, 12, 100, 70, 1.5) + one(150, '(나)', S.map[b]));
 }
 function exampleGridSvg(sym, g) {
   const after = sym.f(g);
@@ -709,8 +710,8 @@ function buildMissing(ctx, { n }) {
       ex += '<br><b>오답</b> 다른 기호를 넣으면 출력이 달라진다. ' + S.tkeys.map((k, i) => (k === hidden ? null : `${S.map[k].name} → ${outs[i]}`)).filter(Boolean).join(', ') + '.';
     } else {
       ex += `'?' 바로 앞의 격자(${gridDesc(before)})와 '?' 바로 뒤의 격자(${gridDesc(after)})를 비교한다. `;
-      ex += preTrace.length ? `앞쪽은 입력에 ${preTrace.map((t) => S.map[t.key].name).join(', ')}을(를) 차례로 적용해 얻고, ` : `앞쪽은 입력 그대로이고, `;
-      ex += postTrace.length ? `뒤쪽은 출력에서 ${postTrace.slice().reverse().map((t) => `${S.map[t.key].name}(${S.map[t.key].invShort})`).join(', ')}의 순서로 되돌려 얻는다. ` : '뒤쪽은 출력 그대로이다. ';
+      ex += preTrace.length ? `앞쪽은 입력에 ${preTrace.map((t) => S.map[t.key].name).join(', ')}을(를) ${preTrace.length > 1 ? '차례로 ' : ''}적용해 얻고, ` : `앞쪽은 입력 그대로이고, `;
+      ex += postTrace.length ? `뒤쪽은 출력에서 ${postTrace.slice().reverse().map((t) => `${S.map[t.key].name}(${S.map[t.key].invShort})`).join(', ')}${postTrace.length > 1 ? '의 순서로' : '를'} 되돌려 얻는다. ` : '뒤쪽은 출력 그대로이다. ';
       ex += `이 변화를 만드는 기호는 <b>${sym.name}</b>(${sym.short}, ${CIRC[ctx.target - 1]})뿐이다.`;
       ex += `<br>검산: ${traceText(S, x, tsteps)}`;
       ex += '<br><b>오답</b> ' + S.tkeys.map((k, i) => (k === hidden ? null : `${S.map[k].name}을(를) 넣으면 ${gridDiff(outs[i], res.out)} 출력과 다르다.`)).filter(Boolean).join(' ');
@@ -751,20 +752,27 @@ function buildMissingPair(ctx, { makeProg, require }) {
     const outs = combos.map(([p, q]) => run(S, prog, x, { assign: { 가: p, 나: q } }).out);
     const hits = combos.filter((c, i) => outs[i] === res.out);
     if (hits.length !== 1) continue; // 16가지 조합 중 하나만 맞아야 한다.
-    // 오답 쌍: 순서를 바꾼 쌍 → 한쪽만 같은 쌍 → 나머지
-    const rank = ([p, q]) => (p === b && q === a ? 0 : p === a || q === b ? 1 : 2);
-    const wrong = rng.shuffle(combos.filter(([p, q]) => !(p === a && q === b))).sort((u, v) => rank(u) - rank(v));
-    const picked = [];
-    for (const pass of [0, 1]) { // 1차: 출력이 서로 다른 오답만, 2차: 모자라면 출력이 겹쳐도 허용
-      for (const c of wrong) {
-        if (picked.length === 4) break;
-        const o = outs[combos.indexOf(c)];
-        if (!S.dom.ok(o) || picked.some((p) => p.val === c)) continue;
-        if (pass === 0 && picked.some((p) => p.out === o)) continue;
-        picked.push({ val: c, why: null, out: o });
+    // 오답 쌍 고르기: 순서를 바꾼 쌍 1개 + (가)만 같은 쌍 1개 + (나)만 같은 쌍 1개 + 둘 다 다른 쌍 1개.
+    // 선지 빈도만 보고 정답을 찍을 수 없도록, 각 칸에서 정답 기호가 '혼자 가장 많이' 나오지 않게 한다.
+    const W = combos.map((c, i) => ({ val: c, why: null, out: outs[i] })).filter((w) => !(w.val[0] === a && w.val[1] === b) && S.dom.ok(w.out) && w.out !== x);
+    const cat = (w) => { const [p, q] = w.val; return p === b && q === a ? 'swap' : p === a ? 'sameA' : q === b ? 'sameB' : 'diff'; };
+    const modeOk = (cols) => [0, 1].every((ci) => {
+      const cnt = {}; cols.forEach((v) => { cnt[v[ci]] = (cnt[v[ci]] || 0) + 1; });
+      const mine = cnt[[a, b][ci]];
+      return mine <= 2 && Object.entries(cnt).some(([k, n]) => k !== [a, b][ci] && n >= mine);
+    });
+    let picked = null;
+    for (let t = 0; t < 400 && !picked; t++) {
+      const pool = rng.shuffle(W);
+      const sel = [];
+      for (const want of ['swap', 'sameA', 'sameB', 'diff']) {
+        const w = pool.find((u) => cat(u) === want && !sel.includes(u) && !sel.some((s2) => s2.out === u.out));
+        if (w) sel.push(w);
       }
+      for (const u of pool) { if (sel.length >= 4) break; if (!sel.includes(u) && cat(u) === 'diff' && !sel.some((s2) => s2.out === u.out)) sel.push(u); }
+      if (sel.length === 4 && modeOk([[a, b], ...sel.map((u) => u.val)])) picked = sel;
     }
-    if (picked.length < 4) continue;
+    if (!picked) continue;
     const { vals } = place(rng, [a, b], picked, ctx.target);
     const outsByChoice = vals.map(([p, q]) => run(S, prog, x, { assign: { 가: p, 나: q } }).out);
     const ok = outsByChoice.map((o, i) => (o === res.out ? i + 1 : 0)).filter(Boolean);
@@ -850,15 +858,31 @@ function buildReverse(ctx, { makeProg, require }) {
     if (!fwdOuts.every((r) => dom.ok(r.out) && r.trace.every((t) => t.t !== 'T' || dom.ok(t.after)))) continue;
     ctx.usedInputs.add(dom.key(x));
     let ex = '<b>풀이</b> ';
-    if (dom.kind === 'str') {
-      ex += `출력 ${Y}에서 기호를 뒤에서부터 거꾸로 되돌린다: ${invTraceText(S, Y, ts)}.`;
-      if (conds.length) {
-        const c = res.trace.find((t) => t.t === 'C');
-        ex += ` 이때 마름모에 도착하는 문자열 ${c.at}는 ${S.map[c.key].explain(c.at)}이므로 ${c.res ? 'Yes' : 'No'} 갈래를 지난다는 가정과 맞는다.`;
-        ex = ex.replace(/문자열 ([A-Z0-9]{4})는/, (m, s) => `문자열 ${J.eun(s)}`);
+    if (dom.kind === 'str' && conds.length) {
+      assert.equal(conds.length, 1, '역방향 설명은 마름모 1개 도식만 지원');
+      const c = prog.cond, csym = S.map[c.key];
+      assert.ok(!c.yes.cond && !c.no.cond);
+      ex += `마지막에 어느 갈래를 지났는지 모르므로 두 경우를 모두 거꾸로 되돌려 본다.`;
+      for (const hyp of [true, false]) {
+        const br = (hyp ? c.yes : c.no).pre.map((st) => S.map[st.key]);
+        const brSteps = []; let v = Y;
+        for (let i = br.length - 1; i >= 0; i--) { const nv = br[i].inv(v); brSteps.unshift({ t: 'T', key: br[i].key, before: nv, after: v }); v = nv; }
+        const mid = v, got = csym.test(mid);
+        ex += `<br>· ${hyp ? 'Yes' : 'No'} 갈래(${br.map((m) => m.name).join(', ')})를 지났다면: ${br.length ? invTraceText(S, Y, brSteps) : Y}. 그러면 마름모에 도착하는 문자열은 ${mid}인데, ${csym.explain(mid)} → ${got ? 'Yes' : 'No'}이므로 가정과 ${got === hyp ? '<b>맞는다</b>' : '<b>어긋난다</b>'}.`;
+        if (got === hyp) {
+          const pre = prog.pre.map((st) => S.map[st.key]);
+          const preSteps = []; let u = mid;
+          for (let i = pre.length - 1; i >= 0; i--) { const nu = pre[i].inv(u); preSteps.unshift({ t: 'T', key: pre[i].key, before: nu, after: u }); u = nu; }
+          assert.ok(dom.same(u, x), '갈래 가정 역산 결과가 정답과 다름');
+          if (preSteps.length) ex += ` 이어서 앞부분을 되돌리면 ${invTraceText(S, mid, preSteps)}.`;
+        }
       }
       ex += `<br>검산: ${traceText(S, x, res.trace)}. 따라서 입력은 ${x}(${CIRC[ctx.target - 1]})이다.`;
-      ex += '<br><b>오답</b> ' + vals.map((v, i) => (i + 1 === ctx.target ? null : `${CIRC_EUN[i]} ${whys[i]} 값으로, 넣어 보면 출력이 ${fwdOuts[i].out}${conds.length ? `(${fwdOuts[i].trace.filter((t) => t.t === 'C').map((t) => (t.res ? 'Yes' : 'No')).join('·')} 갈래)` : ''}가 된다.`)).filter(Boolean).join(' ');
+      ex += '<br><b>오답</b> ' + vals.map((v, i) => (i + 1 === ctx.target ? null : `${CIRC_EUN[i]} ${whys[i]} 값으로, 넣어 보면 출력이 ${fwdOuts[i].out}(${fwdOuts[i].trace.filter((t) => t.t === 'C').map((t) => (t.res ? 'Yes' : 'No')).join('·')} 갈래)가 된다.`)).filter(Boolean).join(' ');
+    } else if (dom.kind === 'str') {
+      ex += `출력 ${Y}에서 기호를 뒤에서부터 거꾸로 되돌린다: ${invTraceText(S, Y, ts)}.`;
+      ex += `<br>검산: ${traceText(S, x, res.trace)}. 따라서 입력은 ${x}(${CIRC[ctx.target - 1]})이다.`;
+      ex += '<br><b>오답</b> ' + vals.map((v, i) => (i + 1 === ctx.target ? null : `${CIRC_EUN[i]} ${whys[i]} 값으로, 넣어 보면 출력이 ${fwdOuts[i].out}가 된다.`)).filter(Boolean).join(' ');
     } else {
       ex += `출력 격자에서 기호를 뒤에서부터 거꾸로 되돌린다: ${invTraceText(S, Y, ts)}.`;
       ex += `<br>검산: ${traceText(S, x, res.trace)}<br>따라서 입력 격자는 ${CIRC[ctx.target - 1]}이다.`;
@@ -1099,7 +1123,12 @@ function validatePayload(S, payload, gen) {
       assert.equal(hits, 1);
       const ch = m.vals.filter(([a, b]) => run(S, m.prog, m.x, { assign: { 가: a, 나: b } }).out === m.out).length;
       assert.equal(ch, 1);
-      detail = `16개 조합 중 일치 ${hits}개, 선지 중 ${ch}개`;
+      for (const ci of [0, 1]) { // 각 칸에서 정답 기호가 혼자 가장 많이 나오지 않는다.
+        const cnt = {}; m.vals.forEach((v) => { cnt[v[ci]] = (cnt[v[ci]] || 0) + 1; });
+        const mine = cnt[m.pair[ci]];
+        assert.ok(Object.entries(cnt).some(([k, n]) => k !== m.pair[ci] && n >= mine), `${it.id}: 선지 빈도로 정답이 드러남`);
+      }
+      detail = `16개 조합 중 일치 ${hits}개, 선지 중 ${ch}개, 칸별 빈도 균형`;
     } else if (m.type === 'reverse') {
       const hits = m.vals.filter((v) => dom.same(run(S, m.prog, v).out, m.out)).length;
       assert.equal(hits, 1); assert.ok(dom.same(run(S, m.prog, m.vals[it.answer - 1]).out, m.out));
