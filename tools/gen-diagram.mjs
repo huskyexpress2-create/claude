@@ -252,19 +252,19 @@ const SET1 = makeSet({
   symbols: [
     { key: 'A', name: '검은 별', shape: 'star', fill: 'black', desc: '모든 문자를 다음 순서로 한 칸씩 옮긴다. (A→B, Z→A, 0→1, 9→0)', example: 'AZ09 → BA10',
       short: '모든 문자 +1', invShort: '모든 문자 −1', f: mapAll(1), inv: mapAll(-1),
-      errs: [{ f: mapAll(-1), why: '검은 별을 앞 순서(−1)로 옮긴' }] },
+      errs: [{ f: mapAll(-1), why: '검은 별을 앞 순서(−1)로 옮긴', how: '앞 순서(−1)로 옮긴' }] },
     { key: 'B', name: '흰 원', shape: 'circle', fill: 'white', desc: '문자의 순서를 거꾸로 뒤집는다.', example: 'AB12 → 21BA',
       short: '역순', invShort: '역순', f: perm([3, 2, 1, 0]), inv: perm([3, 2, 1, 0]),
-      errs: [{ f: perm([3, 1, 2, 0]), why: '흰 원을 첫째·넷째 자리만 맞바꾸는 것으로 착각한' }] },
+      errs: [{ f: perm([3, 1, 2, 0]), why: '흰 원을 첫째·넷째 자리만 맞바꾸는 것으로 착각한', how: '첫째·넷째 자리만 맞바꾼' }] },
     { key: 'C', name: '회색 삼각형', shape: 'triangle', fill: 'mid', desc: '첫째와 둘째 자리를 맞바꾸고, 셋째와 넷째 자리를 맞바꾼다.', example: 'ABCD → BADC',
       short: '1·2, 3·4 자리 교환', invShort: '1·2, 3·4 자리 교환', f: perm([1, 0, 3, 2]), inv: perm([1, 0, 3, 2]),
-      errs: [{ f: perm([2, 3, 0, 1]), why: '회색 삼각형을 앞 두 자리와 뒤 두 자리를 통째로 맞바꾸는 것으로 착각한' }] },
+      errs: [{ f: perm([2, 3, 0, 1]), why: '회색 삼각형을 앞 두 자리와 뒤 두 자리를 통째로 맞바꾸는 것으로 착각한', how: '앞 두 자리와 뒤 두 자리를 통째로 맞바꾼' }] },
     { key: 'D', name: '흰 사각형', shape: 'square', fill: 'white', desc: '맨 앞 문자를 맨 뒤로 보낸다.', example: 'ABCD → BCDA',
       short: '맨 앞 → 맨 뒤', invShort: '맨 뒤 → 맨 앞', f: perm([1, 2, 3, 0]), inv: perm([3, 0, 1, 2]),
-      errs: [{ f: perm([3, 0, 1, 2]), why: '흰 사각형을 반대 방향(맨 뒤 → 맨 앞)으로 적용한' }] },
+      errs: [{ f: perm([3, 0, 1, 2]), why: '흰 사각형을 반대 방향(맨 뒤 → 맨 앞)으로 적용한', how: '맨 뒤 문자를 맨 앞으로 보낸' }] },
     { key: 'E', name: '검은 육각형', shape: 'hexagon', fill: 'black', desc: '홀수 번째(첫째·셋째) 자리의 문자만 다음 순서로 두 칸씩 옮긴다.', example: 'Y28K → A20K',
       short: '홀수 자리 +2', invShort: '홀수 자리 −2', f: mapPos([0, 2], 2), inv: mapPos([0, 2], -2),
-      errs: [{ f: mapPos([1, 3], 2), why: '검은 육각형을 짝수 번째 자리에 적용한' }, { f: mapPos([0, 2], 1), why: '검은 육각형에서 두 칸이 아니라 한 칸만 옮긴' }] },
+      errs: [{ f: mapPos([1, 3], 2), why: '검은 육각형을 짝수 번째 자리에 적용한', how: '짝수 번째 자리를 옮긴' }, { f: mapPos([0, 2], 1), why: '검은 육각형에서 두 칸이 아니라 한 칸만 옮긴', how: '한 칸만 옮긴' }] },
   ],
 });
 
@@ -276,19 +276,19 @@ const SET2 = makeSet({
   symbols: [
     { key: 'A', name: '검은 별', shape: 'star', fill: 'black', desc: '격자 전체를 시계 방향으로 90° 회전한다.', example: '1행 → 3열, 3행 → 1열 (시계 방향 90°)',
       short: '시계 방향 90° 회전', invShort: '반시계 방향 90° 회전', f: rotCW, inv: rotCCW,
-      errs: [{ f: rotCCW, why: '검은 별을 반시계 방향으로 회전한' }, { f: rot180, why: '검은 별을 180° 회전한' }] },
+      errs: [{ f: rotCCW, why: '검은 별을 반시계 방향으로 회전한', how: '반시계 방향으로 돌린' }, { f: rot180, why: '검은 별을 180° 회전한', how: '180° 돌린' }] },
     { key: 'B', name: '흰 삼각형', shape: 'triangle', fill: 'white', desc: '세로 가운데 줄을 기준으로 좌우를 뒤집는다(1열 ↔ 3열).', example: '1열 ↔ 3열, 2열은 그대로',
       short: '좌우 대칭', invShort: '좌우 대칭', f: mirLR, inv: mirLR,
-      errs: [{ f: mirUD, why: '흰 삼각형을 상하 대칭으로 착각한' }] },
+      errs: [{ f: mirUD, why: '흰 삼각형을 상하 대칭으로 착각한', how: '위아래로 뒤집은' }] },
     { key: 'C', name: '회색 사각형', shape: 'square', fill: 'mid', desc: '채운 칸은 비우고 빈 칸은 채운다. 원·X 표시 칸은 그대로 둔다.', example: '채운 칸 ↔ 빈 칸, 표시 칸은 그대로',
       short: '색 반전', invShort: '색 반전', f: invert, inv: invert,
-      errs: [{ f: fillEmptyOnly, why: '회색 사각형에서 빈 칸만 채우고 채운 칸은 비우지 않은' }] },
+      errs: [{ f: fillEmptyOnly, why: '회색 사각형에서 빈 칸만 채우고 채운 칸은 비우지 않은', how: '빈 칸만 채운' }] },
     { key: 'D', name: '흰 육각형', shape: 'hexagon', fill: 'white', desc: '모든 행을 아래로 한 칸씩 옮긴다. 맨 아래 3행은 맨 위 1행 자리로 올라간다.', example: '1행 → 2행, 2행 → 3행, 3행 → 1행',
       short: '행을 아래로 한 칸 이동', invShort: '행을 위로 한 칸 이동', f: rowDown, inv: rowUp,
-      errs: [{ f: rowUp, why: '흰 육각형에서 행을 위로 옮긴' }, { f: colRight, why: '흰 육각형에서 행 대신 열을 옮긴' }] },
+      errs: [{ f: rowUp, why: '흰 육각형에서 행을 위로 옮긴', how: '행을 위로 옮긴' }, { f: colRight, why: '흰 육각형에서 행 대신 열을 옮긴', how: '행 대신 열을 옮긴' }] },
     { key: 'E', name: '검은 반원', shape: 'semicircle', fill: 'black', desc: '왼쪽 위에서 오른쪽 아래로 가는 대각선을 기준으로 뒤집는다(행과 열을 맞바꾼다).', example: '1행 ↔ 1열, 2행 ↔ 2열, 3행 ↔ 3열',
       short: '주대각선 대칭', invShort: '주대각선 대칭', f: transp, inv: transp,
-      errs: [{ f: antiTransp, why: '검은 반원을 반대쪽 대각선(오른쪽 위–왼쪽 아래) 기준 대칭으로 착각한' }] },
+      errs: [{ f: antiTransp, why: '검은 반원을 반대쪽 대각선(오른쪽 위–왼쪽 아래) 기준 대칭으로 착각한', how: '반대쪽 대각선을 기준으로 뒤집은' }] },
   ],
 });
 
@@ -302,16 +302,16 @@ const SET3 = makeSet({
   symbols: [
     { key: 'A', name: '검은 삼각형', shape: 'triangle', fill: 'black', desc: '모든 문자를 앞 순서로 한 칸씩 옮긴다. (B→A, A→Z, 1→0, 0→9)', example: 'BA10 → AZ09',
       short: '모든 문자 −1', invShort: '모든 문자 +1', f: mapAll(-1), inv: mapAll(1),
-      errs: [{ f: mapAll(1), why: '검은 삼각형을 다음 순서(+1)로 옮긴' }] },
+      errs: [{ f: mapAll(1), why: '검은 삼각형을 다음 순서(+1)로 옮긴', how: '다음 순서(+1)로 옮긴' }] },
     { key: 'B', name: '흰 원', shape: 'circle', fill: 'white', desc: '둘째와 셋째 자리를 맞바꾼다.', example: 'ABCD → ACBD',
       short: '2·3 자리 교환', invShort: '2·3 자리 교환', f: perm([0, 2, 1, 3]), inv: perm([0, 2, 1, 3]),
-      errs: [{ f: perm([1, 0, 2, 3]), why: '흰 원을 첫째·둘째 자리 교환으로 착각한' }] },
+      errs: [{ f: perm([1, 0, 2, 3]), why: '흰 원을 첫째·둘째 자리 교환으로 착각한', how: '첫째·둘째 자리를 맞바꾼' }] },
     { key: 'C', name: '회색 사각형', shape: 'square', fill: 'mid', desc: '맨 뒤 문자를 맨 앞으로 보낸다.', example: 'ABCD → DABC',
       short: '맨 뒤 → 맨 앞', invShort: '맨 앞 → 맨 뒤', f: perm([3, 0, 1, 2]), inv: perm([1, 2, 3, 0]),
-      errs: [{ f: perm([1, 2, 3, 0]), why: '회색 사각형을 반대 방향(맨 앞 → 맨 뒤)으로 적용한' }] },
+      errs: [{ f: perm([1, 2, 3, 0]), why: '회색 사각형을 반대 방향(맨 앞 → 맨 뒤)으로 적용한', how: '맨 앞 문자를 맨 뒤로 보낸' }] },
     { key: 'D', name: '검은 육각형', shape: 'hexagon', fill: 'black', desc: '숫자만 다음 순서로 한 칸씩 옮긴다(9→0). 알파벳은 그대로 둔다.', example: 'A9B3 → A0B4',
       short: '숫자만 +1', invShort: '숫자만 −1', f: mapDigits(1), inv: mapDigits(-1),
-      errs: [{ f: mapAll(1), why: '검은 육각형을 알파벳까지 옮긴' }, { f: mapDigits(-1), why: '검은 육각형에서 숫자를 앞 순서로 옮긴' }] },
+      errs: [{ f: mapAll(1), why: '검은 육각형을 알파벳까지 옮긴', how: '알파벳까지 옮긴' }, { f: mapDigits(-1), why: '검은 육각형에서 숫자를 앞 순서로 옮긴', how: '숫자를 앞 순서로 옮긴' }] },
     { key: 'E', name: '점 마름모', kind: 'C', shape: 'diamond', fill: 'white', glyph: 'dot',
       desc: '첫째 자리 문자가 모음(A, E, I, O, U)이면 Yes, 아니면 No 쪽으로 보낸다.', example: 'E7K2 → Yes, 7EK2 → No',
       short: '첫 문자 모음?', test: vowelTest,
@@ -363,7 +363,8 @@ function run(S, prog, x, opt = {}) {
   }
   return { out: cur, trace };
 }
-const symCount = (prog) => stepsOf(prog).length + condsOf(prog).length;
+const symCount = (prog) => stepsOf(prog).length + condsOf(prog).length; // 그림에 그려진 기호 수
+const pathCount = (trace) => trace.length; // 실제로 지나는 기호 수(변환 + 마름모)
 
 /* ------------------------------------------------------------------ */
 /* 흐름도 SVG                                                           */
@@ -603,11 +604,14 @@ function wrongLine(S, i, why, kindNoun) {
 /* 문항 생성기                                                          */
 /* ------------------------------------------------------------------ */
 function chooseKeys(rng, S, n, usage, fixed = {}) {
-  // 인접한 기호가 같지 않게, 덜 쓰인 기호를 조금 더 자주 뽑는다.
+  // 한 도식 안에서는 같은 기호를 되도록 다시 쓰지 않고(기호 수가 모자라면 인접한 것만 피함),
+  // 회차 안에서 덜 쓰인 기호를 조금 더 자주 뽑는다.
   const keys = [];
+  const distinct = n <= S.tkeys.length;
+  const fixedVals = Object.values(fixed);
   for (let i = 0; i < n; i++) {
     if (fixed[i]) { keys.push(fixed[i]); continue; }
-    const pool = S.tkeys.filter((k) => k !== keys[i - 1] && k !== fixed[i + 1]);
+    const pool = S.tkeys.filter((k) => k !== keys[i - 1] && k !== fixed[i + 1] && (!distinct || (!keys.includes(k) && !fixedVals.includes(k))));
     keys.push(rng.weighted(pool, (k) => 1 / (1 + (usage[k] || 0)) ** 2));
   }
   return keys;
@@ -641,7 +645,7 @@ function buildForward(ctx, { makeProg, subtype, require, kindOrder, stem }) {
     if (!traceOk(S, x, res)) continue;
     if (require && !require(res, prog, x)) continue;
     const cands = forwardCands(S, prog, x, {});
-    const ds = pickDistractors(rng, cands, res.out, S.dom, kindOrder || ['omit', 'swap', 'err', 'confuse']);
+    const ds = pickDistractors(rng, cands.filter((c) => !S.dom.same(c.val, x)), res.out, S.dom, kindOrder || ['omit', 'swap', 'err', 'confuse']);
     if (ds.length < 4) continue;
     if (require?.distractors && !require.distractors(ds)) continue;
     const { vals, whys } = place(rng, res.out, ds, ctx.target);
@@ -663,7 +667,7 @@ function buildForward(ctx, { makeProg, subtype, require, kindOrder, stem }) {
         answer: ctx.target,
         explanation: ex,
       },
-      meta: { type: 'forward', prog, x, out: res.out, vals, nsym: symCount(prog), path: res.trace.filter((t) => t.t === 'C').map((t) => (t.res ? 'Y' : 'N')).join('') },
+      meta: { type: 'forward', prog, x, out: res.out, vals, nsym: symCount(prog), npath: pathCount(res.trace), path: res.trace.filter((t) => t.t === 'C').map((t) => (t.res ? 'Y' : 'N')).join('') },
     };
   }
   throw new Error(`순방향 문항 생성 실패(set ${S.no}, target ${ctx.target})`);
@@ -736,6 +740,7 @@ function buildMissingPair(ctx, { makeProg, require }) {
   for (const a of S.tkeys) for (const b of S.tkeys) combos.push([a, b]);
   for (let att = 0; att < MAX_ITEM_ATTEMPTS; att++) {
     const [a, b] = rng.pick(combos);
+    if (a === b || ctx.usedPairs.has(a + b)) continue; // 같은 기호 두 번, 앞 문항과 같은 정답 쌍은 피한다.
     const prog = makeProg();
     const x = randInput(rng, S);
     if (ctx.usedInputs.has(S.dom.key(x))) continue;
@@ -750,11 +755,14 @@ function buildMissingPair(ctx, { makeProg, require }) {
     const rank = ([p, q]) => (p === b && q === a ? 0 : p === a || q === b ? 1 : 2);
     const wrong = rng.shuffle(combos.filter(([p, q]) => !(p === a && q === b))).sort((u, v) => rank(u) - rank(v));
     const picked = [];
-    for (const c of wrong) {
-      const o = outs[combos.indexOf(c)];
-      if (!S.dom.ok(o)) continue;
-      picked.push({ val: c, why: null, out: o });
-      if (picked.length === 4) break;
+    for (const pass of [0, 1]) { // 1차: 출력이 서로 다른 오답만, 2차: 모자라면 출력이 겹쳐도 허용
+      for (const c of wrong) {
+        if (picked.length === 4) break;
+        const o = outs[combos.indexOf(c)];
+        if (!S.dom.ok(o) || picked.some((p) => p.val === c)) continue;
+        if (pass === 0 && picked.some((p) => p.out === o)) continue;
+        picked.push({ val: c, why: null, out: o });
+      }
     }
     if (picked.length < 4) continue;
     const { vals } = place(rng, [a, b], picked, ctx.target);
@@ -762,11 +770,13 @@ function buildMissingPair(ctx, { makeProg, require }) {
     const ok = outsByChoice.map((o, i) => (o === res.out ? i + 1 : 0)).filter(Boolean);
     assert.deepEqual(ok, [ctx.target], '빠진 기호 쌍: 정답 선지가 하나가 아님');
     ctx.usedInputs.add(S.dom.key(x));
+    ctx.usedPairs.add(a + b);
     let ex = `<b>풀이</b> (가)에 <b>${S.map[a].name}</b>, (나)에 <b>${S.map[b].name}</b>을(를) 넣으면 ${traceText(S, x, res.trace)}로 주어진 출력과 같다. 가능한 16가지 조합 가운데 출력이 ${res.out}가 되는 조합은 이것 하나뿐이다(${CIRC[ctx.target - 1]}).`;
     ex = ex.replace(/<b>([가-힣 ]+)<\/b>을\(를\)/, (m, w) => `<b>${w}</b>${jong(w) ? '을' : '를'}`);
     ex = ex.replace(/출력이 ([A-Z0-9]{4})가 되는/, (m, s) => `출력이 ${J.ga(s)} 되는`);
     const lines = vals.map(([p, q], i) => (i + 1 === ctx.target ? null : `${CIRC_EUN[i]} 출력이 ${outsByChoice[i]}${p === b && q === a ? '(두 기호의 순서를 바꾼 경우)' : ''}`)).filter(Boolean);
-    ex += `<br><b>오답</b> ${lines.join(', ')}가 되어 주어진 출력과 다르다.`;
+    const lastOut = outsByChoice[vals.map((v, i) => i).filter((i) => i + 1 !== ctx.target).pop()];
+    ex += `<br><b>오답</b> ${lines.join(', ')}${jong(lastOut) ? '이' : '가'} 되어 주어진 출력과 다르다.`;
     ex += '<br><b>요령</b> 숫자·알파벳 값만 바꾸는 기호(검은 삼각형, 검은 육각형)와 자리만 바꾸는 기호(흰 원, 회색 사각형)를 나눠 생각하면 후보가 빨리 줄어든다. 마름모가 있으면 (가)에 따라 갈래가 달라지는지 먼저 확인한다.';
     return {
       item: {
@@ -814,7 +824,7 @@ function buildReverse(ctx, { makeProg, require }) {
       }
       for (const e of syms[i].errs || []) {
         const seq3 = invSeq.slice(); seq3[k - 1 - i] = e.f;
-        cands.push({ kind: 'errinv', val: applyInv(seq3, Y), why: `${syms[i].name}을(를) 되돌릴 때 규칙을 잘못 적용한`.replace(/([가-힣]+)을\(를\)/, (m, w) => J.eul(w)) });
+        cands.push({ kind: 'errinv', val: applyInv(seq3, Y), why: `${J.eul(syms[i].name)} 되돌릴 때 ${e.how}` });
       }
     }
     // 반대쪽 갈래를 지났다고 보고 거꾸로 계산
@@ -828,10 +838,11 @@ function buildReverse(ctx, { makeProg, require }) {
         cands.push({ kind: 'branch', val: v, why: `${S.map[conds[ci].key].name}에서 반대쪽 갈래를 지났다고 보고 거꾸로 계산한` });
       }
     }
-    const validWrong = cands.filter((c) => !dom.same(run(S, prog, c.val).out, Y)); // 넣어 봐도 출력이 다른 것만
+    const validWrong = cands.filter((c) => !dom.same(c.val, Y) && !dom.same(run(S, prog, c.val).out, Y)); // 출력 자체가 아니고, 넣어 봐도 출력이 다른 것만
     const order = conds.length ? ['branch', 'order', 'nofinv', 'omit', 'errinv', 'fwd'] : ['order', 'nofinv', 'omit', 'fwd', 'errinv'];
     const ds = pickDistractors(rng, validWrong, x, dom, order);
     if (ds.length < 4) continue;
+    if (conds.length && !ds.some((d) => d.kind === 'branch')) continue; // 갈래를 잘못 고른 오답은 꼭 넣는다.
     const { vals, whys } = place(rng, x, ds, ctx.target);
     const fwdOuts = vals.map((v) => run(S, prog, v));
     const hits = fwdOuts.map((r, i) => (dom.same(r.out, Y) ? i + 1 : 0)).filter(Boolean);
@@ -891,7 +902,7 @@ function buildCompound(ctx) {
     if (!traceOk(S, xa, ra) || !traceOk(S, xb, rb)) continue;
     const outsA = S.tkeys.map((k) => run(S, progA, xa, { assign: { '㉠': k } }).out);
     if (outsA.filter((o) => dom.same(o, ra.out)).length !== 1) continue; // ㉠이 유일하게 정해져야 한다.
-    const cands = S.tkeys.filter((k) => k !== h).map((k) => ({ kind: 'slot', val: run(S, progB, xb, { assign: { '㉠': k } }).out, why: `㉠을 ${J.ro(S.map[k].name)} 잘못 찾았을 때의` }));
+    const cands = S.tkeys.filter((k) => k !== h).map((k) => ({ kind: 'slot', val: run(S, progB, xb, { assign: { '㉠': k } }).out, why: `㉠을 ${J.ro(S.map[k].name)} 잘못 찾은` }));
     for (const c of forwardCands(S, progB, xb, { '㉠': h })) if (c.kind !== 'confuse') cands.push({ ...c, why: `(나)에서 ${c.why}` });
     const ds = pickDistractors(rng, cands, rb.out, dom, ['slot', 'omit', 'swap', 'slot', 'err']);
     if (ds.length < 4) continue;
@@ -902,20 +913,21 @@ function buildCompound(ctx) {
     ctx.usedInputs.add(dom.key(xa)); ctx.usedInputs.add(dom.key(xb));
     const sym = S.map[h];
     const other = S.map[ka[aFirst ? 1 : 0]];
-    let ex = '<b>풀이</b> ① (가)에서 ㉠ 찾기: ';
+    let ex = '<b>풀이</b> [1단계] (가)에서 ㉠ 찾기: ';
     if (dom.kind === 'str') {
       if (aFirst) ex += `출력 ${ra.out}에서 ${other.name}를 되돌리면(${other.invShort}) ${ra.trace[0].after}이다. 입력 ${xa}를 ${ra.trace[0].after}로 바꾸는 기호는 <b>${sym.name}</b>(${sym.short})뿐이다.`;
       else ex += `입력 ${xa}에 ${other.name}를 적용하면 ${ra.trace[0].after}이다. 이것을 출력 ${ra.out}으로 바꾸는 기호는 <b>${sym.name}</b>(${sym.short})뿐이다.`;
-      ex += `<br>② (나)에 적용: ${traceText(S, xb, rb.trace)}. 따라서 정답은 ${rb.out}(${CIRC[ctx.target - 1]})이다.`;
+      ex += `<br>[2단계] (나)에 적용: ${traceText(S, xb, rb.trace)}. 따라서 정답은 ${rb.out}(${CIRC[ctx.target - 1]})이다.`;
       ex = ex.replace(/([가-힣]+)를 되돌리면/, (m, w) => `${J.eul(w)} 되돌리면`).replace(/([가-힣]+)를 적용하면/, (m, w) => `${J.eul(w)} 적용하면`)
         .replace(/입력 ([A-Z0-9]{4})를 ([A-Z0-9]{4})로/, (m, a, b) => `입력 ${J.eul(a)} ${J.ro(b)}`).replace(/출력 ([A-Z0-9]{4})으로/, (m, a) => `출력 ${J.ro(a)}`);
     } else {
-      ex += `(가)의 입력(${gridDesc(xa)})과 출력(${gridDesc(ra.out)})을 비교한다. ${aFirst ? `출력에서 ${other.name}(${other.invShort})를 되돌린 뒤` : `입력에 ${other.name}(${other.short})를 적용한 뒤`} 남은 변화를 만드는 기호는 <b>${sym.name}</b>(${sym.short})뿐이다.`;
-      ex = ex.replace(/\)를 /g, (m) => m); // 괄호 뒤 조사는 그대로 둔다(읽기에 지장 없음)
-      ex += `<br>② (나)에 적용: ${traceText(S, xb, rb.trace)}<br>따라서 정답은 ${CIRC[ctx.target - 1]}이다.`;
+      const mid = ra.trace[0].after;
+      if (aFirst) ex += `(가)의 출력(${gridDesc(ra.out)})에서 ${J.eul(other.name)} 되돌리면(${other.invShort}) ${gridDesc(mid)}인 격자가 된다. 입력(${gridDesc(xa)})을 이렇게 바꾸는 기호는 <b>${sym.name}</b>(${sym.short})뿐이다.`;
+      else ex += `(가)의 입력(${gridDesc(xa)})에 ${J.eul(other.name)} 적용하면(${other.short}) ${gridDesc(mid)}인 격자가 된다. 이것을 출력(${gridDesc(ra.out)})으로 바꾸는 기호는 <b>${sym.name}</b>(${sym.short})뿐이다.`;
+      ex += `<br>[2단계] (나)에 적용: ${traceText(S, xb, rb.trace)}<br>따라서 정답은 ${CIRC[ctx.target - 1]}이다.`;
     }
     const noun = dom.kind === 'str' ? '결과' : '모양';
-    ex += '<br><b>오답</b> ' + whys.map((w, i) => (w ? `${CIRC_EUN[i]} ${w} ${noun}이다.`.replace('의 결과이다', ' 결과이다').replace('의 모양이다', ' 모양이다') : null)).filter(Boolean).join(' ');
+    ex += '<br><b>오답</b> ' + whys.map((w, i) => (w ? `${CIRC_EUN[i]} ${w} ${noun}이다.` : null)).filter(Boolean).join(' ');
     return {
       item: {
         subtype: '복합 변환',
@@ -945,7 +957,7 @@ function addUsage(usage, ...progs) {
 function generateSet(S, seed) {
   const rng = new Rng(seed);
   const targets = rng.shuffle([1, 2, 3, 4, 5, ...DOUBLES[S.no]]);
-  const ctx = { rng, S, usage: {}, usedInputs: new Set(), target: 0 };
+  const ctx = { rng, S, usage: {}, usedInputs: new Set(), usedPairs: new Set(), target: 0 };
   const lin = (n) => () => P(chooseKeys(rng, S, n, ctx.usage));
   const results = [];
   const push = (r, hiddenKeys = []) => {
@@ -1065,9 +1077,9 @@ function validatePayload(S, payload, gen) {
   const cnt = [0, 0, 0, 0, 0]; items.forEach((it) => cnt[it.answer - 1]++);
   assert.deepEqual(cnt.slice().sort((a, b) => b - a), [2, 2, 2, 1, 1], `정답 분포 ${cnt}`);
   // 기호 개수: 앞 4문항(순방향)은 2개 → 4개로 늘어난다.
-  const ns = gen.results.slice(0, 4).map((r) => r.meta.nsym);
+  const ns = gen.results.slice(0, 4).map((r) => r.meta.npath);
   for (let i = 1; i < ns.length; i++) assert.ok(ns[i] >= ns[i - 1], `난이도(기호 수) 순서 ${ns}`);
-  assert.equal(ns[0], 2);
+  assert.deepEqual([ns[0], ns[3]], [2, 4], `순방향 기호 수는 2개에서 4개로 ${ns}`);
   // 의미 검증을 독립적으로 한 번 더(생성 단계와 별도로 다시 계산)
   return gen.results.map((r, i) => {
     const it = items[i], m = r.meta, dom = S.dom;
@@ -1100,7 +1112,8 @@ function validatePayload(S, payload, gen) {
       assert.equal(hits, 1); assert.ok(dom.same(m.vals[it.answer - 1], out));
       detail = `㉠ 후보 일치 ${hk.length}개, 선지 일치 ${hits}개`;
     }
-    return `  ${it.id} ${it.subtype.padEnd(8, '　')} 정답 ${CIRC[it.answer - 1]}  기호 ${m.nsym}개${m.path ? `  경로 ${m.path}` : ''}  ✔ ${detail}`;
+    const sym = m.npath && m.npath !== m.nsym ? `기호 ${m.nsym}개(지나는 기호 ${m.npath}개)` : `기호 ${m.nsym}개`;
+    return `  ${it.id} ${it.subtype.padEnd(8, ' ')} 정답 ${CIRC[it.answer - 1]}  ${sym.padEnd(18, ' ')}${m.path ? ` 갈래 ${m.path.split('').map((c) => (c === 'Y' ? 'Yes' : 'No')).join('→')}` : ''}  ✔ ${detail}`;
   });
 }
 
