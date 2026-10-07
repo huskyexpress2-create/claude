@@ -36,6 +36,8 @@ button { font-family: inherit; font-size: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 a { color: var(--accent); }
 .hidden { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.foot-end { display: none; }
 .no-select { user-select: none; -webkit-user-select: none; }
 
 /* 공통 버튼 */
@@ -284,7 +286,7 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 }
 .tool-panel .th { background: var(--navy-2); color: #fff; padding: 6px 10px; font-size: 13px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; cursor: move; user-select: none; }
 .tool-panel .th button { background: none; border: 0; color: #fff; font-size: 16px; line-height: 1; padding: 0 2px; }
-.memo textarea { width: 340px; height: 260px; border: 0; padding: 10px; font-family: inherit; font-size: 14px; resize: both; outline: none; }
+.memo textarea { width: min(340px, calc(100vw - 40px)); height: 260px; border: 0; padding: 10px; font-family: inherit; font-size: 14px; resize: both; outline: none; }
 .calc { padding: 10px; width: 240px; }
 .calc .disp { background: #f1f3f6; border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; text-align: right; font-family: ui-monospace, Menlo, Consolas, monospace; margin-bottom: 8px; }
 .calc .disp .expr { font-size: 12px; color: var(--ink-3); min-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -385,7 +387,14 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
   .review-item .rb { grid-template-columns: 1fr; }
   .review-item .rb > div + div { border-left: 0; border-top: 1px solid var(--line); }
   .mobile-banner { display: block; background: #fff3cd; color: #6b4e00; font-size: 12.5px; text-align: center; padding: 6px 10px; }
-  .palette { display: none; }
+  .palette { display: flex; flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; max-height: none; padding: 2px; }
+  .palette button { flex: 0 0 auto; }
+  .exam-foot { gap: 6px; padding: 0 8px; }
+  .exam-foot .btn { padding: 8px 10px; min-height: 38px; }
+  .foot-end { display: inline-flex; }
+  .exam-tools { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  .exam-tools .spacer { display: none; }
+  .exam-tools .btn, .exam-tools .qno-label { white-space: nowrap; }
   .pers-table, .pers-table tbody { display: block; }
   .pers-table colgroup, .pers-table thead { display: none; }
   .pers-table tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line-2); }

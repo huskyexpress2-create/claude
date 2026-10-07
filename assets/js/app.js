@@ -20,7 +20,7 @@
   };
   var DEFAULTS = {
     variant: 'H2', mode: 'real', tools: false, rulesVisible: true, introTimer: 0, penalty: false, flag: true,
-    fullscreen: true, focusWarn: true, proctorPause: false, blind: false,
+    fullscreen: true, proctorPause: false, blind: false,
     likert: 5, part2: 'yn', persTiming: 'split', pageTimer: true
   };
   var PERS_TIMING = {
@@ -37,11 +37,31 @@
     set: function (k, v) { try { localStorage.setItem('hmat-mock:' + k, JSON.stringify(v)); } catch (e) { /* 저장 불가 환경 */ } },
     del: function (k) { try { localStorage.removeItem('hmat-mock:' + k); } catch (e) { /* noop */ } }
   };
-  var settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
+  // 저장된 값이 손상되었거나 옛 버전 값이어도 앱이 멈추지 않도록 허용값만 받는다.
+  var ALLOWED = {
+    variant: ['H2', 'H1', 'ALL'], mode: ['real', 'practice'], tools: [true, false], rulesVisible: [true, false],
+    introTimer: [0, 60], penalty: [true, false], flag: [true, false], fullscreen: [true, false], proctorPause: [true, false],
+    blind: [true, false], likert: [5, 7], part2: ['yn', 'l4', 'l5'], persTiming: ['split', 'total110', 'total80'], pageTimer: [true, false]
+  };
+  function sanitizeSettings(o) {
+    var out = Object.assign({}, DEFAULTS);
+    Object.keys(ALLOWED).forEach(function (k) { if (o && ALLOWED[k].indexOf(o[k]) >= 0) out[k] = o[k]; });
+    return out;
+  }
+  function loadSession() {
+    var s = store.get('session', null);
+    var ok = s && typeof s === 'object' && [1, 2, 3].indexOf(s.set) >= 0 && (s.kind === 'apt' || s.kind === 'pers') && s.settings;
+    if (s && !ok) { store.del('session'); return null; }
+    if (ok) s.settings = sanitizeSettings(s.settings);
+    return ok ? s : null;
+  }
+  var settings = sanitizeSettings(store.get('settings', {}));
   var S = null;            // 진행 중 세션
   var tick = null;         // 타이머 interval
   var qShownAt = 0;        // 현재 문항 표시 시각(소요시간 측정)
   var proctorFired = false;
+  var screenShownAt = 0;   // 화면 전환 직후 더블클릭의 두 번째 클릭이 새 화면에 떨어지는 것을 막는다.
+  var camStream = null, camTimer = null;
 
   function now() { return Date.now(); }
   function save() { if (S) store.set('session', S); }
@@ -66,8 +86,10 @@
     return null;
   }
   function hasSection(n, key) { return sectionItems(n, key).length > 0; }
-  function show(html) { clearToasts(); root.innerHTML = html; window.scrollTo(0, 0); }
+  function show(html) { clearToasts(); stopCam(); root.innerHTML = html; screenShownAt = now(); window.scrollTo(0, 0); guardFullscreen(); }
   function clearToasts() { document.querySelectorAll('.toast').forEach(function (t) { t.remove(); }); }
+  function announce(msg) { var l = document.getElementById('sr-live'); if (l) { l.textContent = ''; l.textContent = msg; } }
+  function ghost(e) { return e && e.detail > 1 && now() - screenShownAt < 700; }
   function footer() { return '<div class="page-foot">현대자동차 및 현대자동차그룹과 무관한 비공식 연습용 모의고사입니다. 실제 시험 화면·문항을 재현한 것이 아니며, 모든 문항은 새로 작성되었습니다.</div>'; }
   function pageHead(right) {
     return '<header class="page-head"><div class="brand">HMAT 대비 모의고사<small>비공식 연습용</small></div><div>' + (right || '') + '</div></header>';
@@ -80,15 +102,33 @@
       back.className = 'modal-back';
       back.innerHTML = '<div class="modal" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3><div class="mb">' + body + '</div><div class="ma"></div></div>';
       var ma = back.querySelector('.ma');
-      (actions || [{ label: '확인', value: true, cls: 'primary' }]).forEach(function (a) {
+      var acts = actions || [{ label: '확인', value: true, cls: 'primary' }];
+      var prev = document.activeElement;
+      function close(v) {
+        back.remove();
+        if (prev && document.contains(prev) && prev.focus) prev.focus();
+        resolve(v);
+      }
+      acts.forEach(function (a) {
         var b = document.createElement('button');
         b.className = 'btn ' + (a.cls || '');
         b.textContent = a.label;
-        b.onclick = function () { back.remove(); resolve(a.value); };
+        b.onclick = function () { close(a.value); };
         ma.appendChild(b);
       });
+      // Esc는 첫 번째(안전한) 선택으로 닫고, Tab은 모달 안에서만 돈다.
+      back.addEventListener('keydown', function (e) {
+        var bs = ma.querySelectorAll('button');
+        if (e.key === 'Escape') { e.preventDefault(); close(acts[0].value); }
+        else if (e.key === 'Tab' && bs.length) {
+          var i = Array.prototype.indexOf.call(bs, document.activeElement);
+          e.preventDefault();
+          bs[(i + (e.shiftKey ? bs.length - 1 : 1)) % bs.length].focus();
+        }
+      });
       document.body.appendChild(back);
-      var last = ma.lastChild; if (last) last.focus();
+      announce(title);
+      if (ma.firstChild) ma.firstChild.focus();
     });
   }
 
@@ -103,7 +143,7 @@
     stopTick();
     exitFullscreen();
     var hist = store.get('history', []);
-    var pending = store.get('session', null);
+    var pending = loadSession();
     var h = '<div class="page">' + pageHead('<button class="btn small ghost" style="color:#fff" data-act="about">시험 구성·근거</button>') + '<main class="page-body">';
     h += '<div class="hero"><div><h1>HMAT 인성·적성검사 모의고사</h1><p>온라인 HMAT 응시 흐름(영역별 독립 타이머, 영역 내 자유 이동, 이전 영역 복귀 불가, 도식 규칙 숙지 시간, 인성 Ⅰ·Ⅱ부)을 재현한 3회분 모의고사입니다.</p></div></div>';
     if (pending && !pending.finished) {
@@ -117,7 +157,7 @@
       var lastApt = hist.filter(function (r) { return r.kind === 'apt' && r.set === n; }).slice(-1)[0];
       var lastPers = hist.filter(function (r) { return r.kind === 'pers' && r.set === n; }).slice(-1)[0];
       h += '<div class="set-card"><h3>제' + n + '회 모의고사</h3>';
-      h += '<div class="meta">적성 ' + v.sections.map(function (k) { return SECTION_META[k].name + ' ' + sectionItems(n, k).length; }).join(' · ') + '</div>';
+      h += '<div class="meta">' + (settings.blind ? '적성 4개 영역(구성 비공개)' : '적성 ' + v.sections.map(function (k) { return SECTION_META[k].name + ' ' + sectionItems(n, k).length; }).join(' · ')) + '</div>';
       h += '<div class="meta">인성 Ⅰ부 ' + P.PART1_BLOCKS + '묶음(156진술) · Ⅱ부 300문항</div>';
       if (lastApt) h += '<div class="last">최근 적성: ' + lastApt.correct + ' / ' + lastApt.total + ' (' + new Date(lastApt.at).toLocaleDateString('ko-KR') + ') <a href="#" data-act="view-result" data-id="' + lastApt.uid + '">결과 보기</a></div>';
       if (lastPers) h += '<div class="last">최근 인성: 응답 ' + lastPers.answered + ' / ' + lastPers.total + ' <a href="#" data-act="view-result" data-id="' + lastPers.uid + '">결과 보기</a></div>';
@@ -134,6 +174,8 @@
     h += '<div class="setting"><label class="title">영역 안내 화면</label>' + seg('introTimer', [[0, '직접 시작'], [60, '60초 후 자동 시작']]) + '</div>';
     h += '<div class="setting"><label class="title">오답 감점</label>' + seg('penalty', [[false, '없음'], [true, '오답당 -0.25']]) + '<div class="hint">감점 여부는 비공식 정보입니다(대부분 영역 감점 없음).</div></div>';
     h += '<div class="setting"><label class="title">검토 표시(플래그)</label>' + seg('flag', [[true, '사용'], [false, '사용 안 함']]) + '</div>';
+    h += '<div class="setting"><label class="title">영역 구성 공개</label>' + seg('blind', [[false, '공개'], [true, '비공개(상·하반기형 무작위)']]) + '<div class="hint">2025 하반기에는 영역 구성을 미리 알려 주지 않았다고 합니다. 비공개로 하면 위 적성 유형 설정 대신 상·하반기형 중 하나가 무작위로 출제됩니다.</div></div>';
+    h += '<div class="setting"><label class="title">실전 모드 전체화면</label>' + seg('fullscreen', [[true, '강제'], [false, '사용 안 함']]) + '</div>';
     h += '<div class="setting"><label class="title">감독 시뮬레이션</label>' + seg('proctorPause', [[false, '끔'], [true, '임의 환경 재점검']]) + '<div class="hint">실전 모드에서 시험 도중 한 번 감독관 재점검 화면이 나타납니다.</div></div>';
     h += '<div class="setting"><label class="title">인성 Ⅰ부 척도</label>' + seg('likert', [[5, '5점'], [7, '7점']]) + '<div class="hint">후기마다 5점/7점으로 엇갈립니다.</div></div>';
     h += '<div class="setting"><label class="title">인성 Ⅱ부 응답</label>' + seg('part2', [['yn', '예/아니오'], ['l4', '4점'], ['l5', '5점']]) + '</div>';
@@ -179,10 +221,12 @@
   }
 
   function startApt(setNo) {
-    var v = VARIANTS[settings.variant];
+    var variant = settings.blind ? (Math.random() < 0.5 ? 'H1' : 'H2') : settings.variant;
+    var v = VARIANTS[variant];
+    fsBlocked = false;
     S = {
       uid: 'a' + now().toString(36),
-      kind: 'apt', set: setNo, variant: settings.variant, settings: Object.assign({}, settings),
+      kind: 'apt', set: setNo, variant: variant, settings: Object.assign({}, settings),
       candidate: newCandidate(),
       sections: v.sections.map(function (k) {
         return { key: k, ids: sectionItems(setNo, k).map(function (it) { return it.id; }), answers: {}, flags: {}, times: {}, status: 'pending', endAt: null, remain: null, studyEndAt: null };
@@ -190,6 +234,11 @@
       secIdx: 0, qIdx: 0, stage: settings.mode === 'real' ? 'precheck' : 'info',
       focusLoss: 0, createdAt: now(), finished: false
     };
+    // 감독 재점검: 실전 모드에서 첫 영역을 뺀 영역 중 하나에서 한 번 발생한다.
+    if (settings.proctorPause && settings.mode === 'real' && S.sections.length > 1) {
+      S.proctorTarget = 1 + Math.floor(Math.random() * (S.sections.length - 1));
+      S.proctorFrac = 0.2 + Math.random() * 0.5;
+    }
     proctorFired = false;
     save();
     route();
@@ -197,6 +246,7 @@
 
   function startPers(setNo) {
     var parts = P.build(setNo);
+    fsBlocked = false;
     S = {
       uid: 'p' + now().toString(36),
       kind: 'pers', set: setNo, settings: Object.assign({}, settings),
@@ -290,14 +340,14 @@
   function generalRules() {
     var secs = S.sections.map(function (s) { var m = SECTION_META[s.key]; return m.name + ' ' + s.ids.length + '문항 ' + m.minutes + '분' + (m.studyMinutes ? '(+규칙 숙지 ' + m.studyMinutes + '분)' : ''); });
     var h = '<div class="page">' + pageHead(titleOf()) + '<main class="page-body">' + stepBar('rules') + '<div class="card"><h2>적성검사 유의사항</h2><ol class="rules-list">';
-    h += '<li>검사는 <b>' + secs.length + '개 영역</b>으로 구성되며 영역마다 제한시간이 따로 주어집니다.<br><span class="small muted">' + esc(secs.join(' → ')) + '</span></li>';
+    h += '<li>검사는 <b>' + secs.length + '개 영역</b>으로 구성되며 영역마다 제한시간이 따로 주어집니다.' + (S.settings.blind ? '<br><span class="small muted">영역 구성은 각 영역을 시작할 때 안내됩니다.</span>' : '<br><span class="small muted">' + esc(secs.join(' → ')) + '</span>') + '</li>';
     h += '<li>영역 안에서는 문항을 자유롭게 이동하며 답을 고칠 수 있지만, <b>종료된 영역으로는 돌아갈 수 없습니다.</b></li>';
     h += '<li>제한시간이 끝나면 답안이 자동 제출되고 다음 영역으로 넘어갑니다. 남은 시간은 다음 영역으로 이월되지 않습니다.</li>';
     h += '<li>답은 문항의 선지를 누르거나 오른쪽 답안 표기란을 눌러 표시합니다. 같은 선지를 다시 누르면 선택이 해제됩니다.</li>';
-    if (S.sections.some(function (s) { return s.key === 'diagram'; })) h += '<li>도식이해는 시작 전 <b>4분간 규칙을 숙지</b>한 뒤 문항이 시작됩니다' + (S.settings.rulesVisible ? '(문항 풀이 중 규칙표 참조 가능).' : '(문항 풀이 중 규칙표는 볼 수 없습니다).') + '</li>';
+    if (!S.settings.blind && S.sections.some(function (s) { return s.key === 'diagram'; })) h += '<li>도식이해는 시작 전 <b>4분간 규칙을 숙지</b>한 뒤 문항이 시작됩니다' + (S.settings.rulesVisible ? '(문항 풀이 중 규칙표 참조 가능).' : '(문항 풀이 중 규칙표는 볼 수 없습니다).') + '</li>';
     h += '<li>' + (S.settings.tools ? '화면의 계산기와 메모장을 사용할 수 있습니다.' : '<b>계산기와 메모장은 제공되지 않습니다.</b> 인쇄한 연습장(보드마카)을 사용하세요.') + '</li>';
     h += '<li>' + (S.settings.penalty ? '오답은 문항당 0.25점 감점됩니다(모의 설정).' : '오답 감점은 없는 것으로 알려져 있습니다(비공식). 정답 수로 채점합니다.') + '</li>';
-    if (S.settings.mode === 'real') h += '<li>실전 모드에서는 전체화면이 유지되어야 하며, 다른 창으로 전환하면 이탈 기록이 남습니다. 일시정지는 할 수 없습니다.</li>';
+    if (S.settings.mode === 'real') h += '<li>실전 모드에서는 ' + (S.settings.fullscreen ? '전체화면이 유지되어야 하며, ' : '') + '다른 창으로 전환하면 이탈 기록이 남습니다. 일시정지는 할 수 없습니다.</li>';
     else h += '<li>연습 모드에서는 일시정지와 문항별 정답 확인이 가능합니다.</li>';
     h += '</ol><div class="center-actions"><button class="btn" data-act="goto" data-stage="info">이전</button><button class="btn primary large" data-act="begin-apt">검사 시작</button></div></div></main>' + footer() + '</div>';
     show(h);
@@ -322,36 +372,35 @@
     if (auto) startTick(); else stopTick();
   }
 
-  function beginSection() {
+  /* base: 영역이 실제로 시작된 시각. 자동 시작·숙지 종료·이어서 응시에서 흘러간 시간을 빼기 위해 쓴다.
+     silent: 화면을 다시 그리지 않는다(이어서 응시 시 상태만 따라잡을 때). */
+  function beginSection(base, silent) {
     var sec = cur(), m = SECTION_META[sec.key];
+    var t = base || now();
     sec.introEndAt = null;
     if (m.studyMinutes && sec.status === 'pending') {
       sec.status = 'study';
-      sec.studyEndAt = now() + m.studyMinutes * 60000;
+      sec.studyEndAt = t + m.studyMinutes * 60000;
       S.stage = 'study';
     } else {
-      activateSection();
+      activateSection(t);
     }
     save();
+    if (silent) return;
     enterFullscreen();
     route();
   }
 
-  function activateSection() {
+  function activateSection(base) {
     var sec = cur(), m = SECTION_META[sec.key];
+    var t = base || now();
     sec.status = 'active';
-    sec.endAt = now() + m.minutes * 60000;
-    sec.startedAt = now();
+    sec.endAt = t + m.minutes * 60000;
+    sec.startedAt = t;
     sec.studyEndAt = null;
     S.qIdx = 0;
     S.stage = 'question';
-    scheduleProctor(sec, m.minutes * 60000);
-  }
-
-  function scheduleProctor(sec, dur) {
-    if (!S.settings.proctorPause || S.settings.mode !== 'real' || proctorFired || S.proctorDone) return;
-    if (S.secIdx === 0) return;
-    if (Math.random() < 0.6) sec.proctorAt = now() + dur * (0.2 + Math.random() * 0.5);
+    if (S.proctorTarget === S.secIdx && !S.proctorDone) sec.proctorAt = t + m.minutes * 60000 * (S.proctorFrac || 0.4);
   }
 
   function studyScreen() {
@@ -361,17 +410,21 @@
     h += '<div class="exam-main"><div class="exam-content"><div class="pane single"><div class="study">' + R.ruleTableHtml(rules) + (S.settings.rulesVisible ? '' : '<p class="notice" style="margin-top:14px">문항 풀이 중에는 규칙표를 다시 볼 수 없습니다(암기 설정).</p>') + '</div></div></div></div>';
     h += '<div class="exam-foot"><span class="small muted">' + esc(S.candidate.id) + '</span><span class="spacer"></span></div>';
     showExam(h);
+    if (S.settings.mode === 'real') guardFullscreen();
     startTick();
   }
 
   /* ---------- 문항 화면 ---------- */
   function examHead(secLabel, remainMs, timerLabel) {
     var who = esc(S.candidate.id) + (S.candidate.name ? '<br>' + esc(S.candidate.name) : '');
-    return '<div class="mobile-banner">실제 시험은 PC 환경에서 응시합니다. 큰 화면을 권장합니다.</div><header class="exam-head"><div class="title">HMAT 모의고사<small>' + esc(titleOf()) + ' · 비공식</small></div><div class="sec">' + secLabel + '</div><div class="who">' + who + '</div><div class="timer" id="timer"><span class="lbl">' + (timerLabel || '남은 시간') + '</span><span class="val" id="timer-val">' + mmss(remainMs) + '</span></div></header>';
+    return '<div class="mobile-banner">실제 시험은 PC 환경에서 응시합니다. 큰 화면을 권장합니다.</div><header class="exam-head"><div class="title">HMAT 모의고사<small>' + esc(titleOf()) + ' · 비공식</small></div><div class="sec">' + secLabel + '</div><div class="who">' + who + '</div><div class="timer" id="timer" role="timer"><span class="lbl">' + (timerLabel || '남은 시간') + '</span><span class="val" id="timer-val">' + mmss(remainMs) + '</span></div></header>';
   }
 
   function showExam(html) {
+    clearToasts();
+    stopCam();
     root.innerHTML = '<div class="exam' + (S.settings.mode === 'real' ? ' no-select' : '') + '" id="exam">' + html + '</div>';
+    screenShownAt = now();
   }
 
   function currentItem() {
@@ -398,7 +451,7 @@
     sec.ids.forEach(function (id, i) {
       var a = sec.answers[id];
       h += '<div class="omr-row' + (i === S.qIdx ? ' cur' : '') + '" data-row="' + i + '"><button class="n' + (sec.flags[id] ? ' flag' : '') + '" data-act="goq" data-q="' + i + '">' + (i + 1) + '</button>';
-      for (var c = 1; c <= 5; c++) h += '<button class="b' + (a === c ? ' on' : '') + '" data-act="omr" data-q="' + i + '" data-c="' + c + '" aria-label="' + (i + 1) + '번 ' + c + '">' + c + '</button>';
+      for (var c = 1; c <= 5; c++) h += '<button class="b' + (a === c ? ' on' : '') + '" data-act="omr" data-q="' + i + '" data-c="' + c + '" aria-pressed="' + (a === c) + '" aria-label="' + (i + 1) + '번 ' + c + '">' + c + '</button>';
       h += '</div>';
     });
     h += '</div><div class="omr-foot"><div class="omr-legend"><span><i style="background:var(--navy)"></i>응답</span>' + (S.settings.flag ? '<span><i style="background:var(--flag);border-radius:0"></i>검토</span>' : '') + '</div><button class="btn danger" data-act="end-section">답안 제출(영역 종료)</button></div></aside></div>';
@@ -406,7 +459,7 @@
     sec.ids.forEach(function (id, i) {
       h += '<button class="' + (sec.answers[id] ? 'ans ' : '') + (i === S.qIdx ? 'cur ' : '') + (sec.flags[id] ? 'flag' : '') + '" data-act="goq" data-q="' + i + '">' + (i + 1) + '</button>';
     });
-    h += '</div><button class="btn" data-act="next"' + (S.qIdx === n - 1 ? ' disabled' : '') + '>다음 ▶</button></footer>';
+    h += '</div><button class="btn" data-act="next"' + (S.qIdx === n - 1 ? ' disabled' : '') + '>다음 ▶</button><button class="btn danger foot-end" data-act="end-section">제출</button></footer>';
     var omrScroll = document.getElementById('omr-body') ? document.getElementById('omr-body').scrollTop : 0;
     var passScroll = document.querySelector('.pane.passage');
     var keepPassage = passScroll && S._lastGroup && item.group && S._lastGroup === item.group.id ? passScroll.scrollTop : 0;
@@ -416,7 +469,8 @@
     S._lastGroup = item.group ? item.group.id : null;
     qShownAt = now();
     if (S.settings.mode === 'real') guardFullscreen();
-    if (sec.remain != null) pauseOverlay();
+    if (sec.remain != null) pauseOverlay(sec.pauseKind === 'proctor' ? PROCTOR_HTML : undefined);
+    var curBtn = document.querySelector('#palette button.cur'); if (curBtn && curBtn.scrollIntoView) curBtn.scrollIntoView({ block: 'nearest', inline: 'center' });
     startTick();
   }
 
@@ -435,8 +489,10 @@
     if (!q) return;
     var opts = { number: S.qIdx + 1, selected: sec.answers[item.id], interactive: true, reveal: !!reveal, answer: item.answer };
     var st = q.scrollTop;
+    var focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.choice : null;
     q.innerHTML = R.questionHtml(item, opts);
     q.scrollTop = st;
+    if (focused) { var f = q.querySelector('.choice[data-choice="' + focused + '"]'); if (f) f.focus(); }
   }
 
   function syncMarks() {
@@ -446,7 +502,7 @@
       var a = sec.answers[id]; if (a) answered++;
       var row = document.querySelector('.omr-row[data-row="' + i + '"]');
       if (row) {
-        row.querySelectorAll('.b').forEach(function (b) { b.classList.toggle('on', +b.dataset.c === a); });
+        row.querySelectorAll('.b').forEach(function (b) { b.classList.toggle('on', +b.dataset.c === a); b.setAttribute('aria-pressed', String(+b.dataset.c === a)); });
         row.querySelector('.n').classList.toggle('flag', !!sec.flags[id]);
       }
       var p = document.querySelector('#palette button[data-q="' + i + '"]');
@@ -483,10 +539,16 @@
     examScreen();
   }
 
-  function endSection(reason) {
+  function endSection(reason, silent) {
     var sec = cur();
     recordTime();
     qShownAt = 0;
+    // 일시정지(감독 재점검 포함) 중에 끝나면 정지 시간을 정리하고 오버레이를 걷는다.
+    if (sec.remain != null) { sec.pausedMs = (sec.pausedMs || 0) + (now() - (sec.pauseStart || now())); sec.remain = null; }
+    var pov = document.getElementById('pause-ov'); if (pov) pov.remove();
+    // 재점검이 예약된 영역을 일찍 끝내면 다음 영역으로 넘긴다.
+    if (sec.proctorAt && !S.proctorDone && S.secIdx < S.sections.length - 1) { S.proctorTarget = S.secIdx + 1; S.proctorFrac = 0.2; }
+    sec.proctorAt = null;
     sec.status = 'done';
     sec.endedAt = now();
     sec.used = Math.min(SECTION_META[sec.key].minutes * 60000, now() - (sec.startedAt || now()) - (sec.pausedMs || 0));
@@ -502,7 +564,7 @@
       S.finishedAt = now();
     }
     save();
-    route();
+    if (!silent) route();
   }
 
   async function confirmEnd() {
@@ -535,20 +597,20 @@
         var left = sec.introEndAt - now();
         var ic = document.getElementById('intro-count');
         if (ic) ic.textContent = mmss(left) + ' 후 자동으로 시작합니다.';
-        if (left <= 0) { stopTick(); beginSection(); }
+        if (left <= 0) { stopTick(); beginSection(sec.introEndAt); }
         return;
       }
       if (S.stage === 'study') {
         var sl = sec.studyEndAt - now();
         setTimerView(sl);
-        if (sl <= 0) { stopTick(); activateSection(); save(); route(); }
+        if (sl <= 0) { stopTick(); activateSection(sec.studyEndAt); save(); route(); }
         return;
       }
       if (S.stage === 'question') {
         if (sec.remain != null) { setTimerView(sec.remain); return; }
         var rem = sec.endAt - now();
         setTimerView(rem);
-        if (sec.proctorAt && now() >= sec.proctorAt) { sec.proctorAt = null; proctorFired = true; S.proctorDone = true; proctorPause(); return; }
+        if (sec.proctorAt && now() >= sec.proctorAt && rem > 0 && !document.querySelector('.modal-back')) { sec.proctorAt = null; proctorFired = true; S.proctorDone = true; proctorPause(); return; }
         if (rem <= 60000 && rem > 0 && !sec.warned1) { sec.warned1 = true; save(); toast('종료 1분 전입니다.'); }
         if (rem <= 0) {
           stopTick();
@@ -568,6 +630,7 @@
     t.style.cssText = 'position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--bad);color:#fff;padding:9px 18px;border-radius:8px;font-weight:700;z-index:120;box-shadow:0 6px 20px rgba(0,0,0,.25)';
     t.textContent = msg;
     document.body.appendChild(t);
+    announce(msg);
     setTimeout(function () { t.remove(); }, 2600);
   }
   function closeModals() { document.querySelectorAll('.modal-back').forEach(function (m) { m.remove(); }); }
@@ -579,6 +642,7 @@
     recordTime();
     sec.remain = sec.endAt - now();
     sec.pauseStart = now();
+    sec.pauseKind = 'user';
     save();
     pauseOverlay();
   }
@@ -591,38 +655,42 @@
     document.body.appendChild(o);
   }
   function resumePause() {
+    var o0 = document.getElementById('pause-ov'); if (o0) o0.remove();
     var sec = cur();
-    if (sec.remain == null) return;
+    if (!sec || sec.remain == null) return;
     sec.endAt = now() + sec.remain;
     sec.pausedMs = (sec.pausedMs || 0) + (now() - (sec.pauseStart || now()));
     sec.remain = null;
+    sec.pauseKind = null;
     qShownAt = now();
     save();
-    var o = document.getElementById('pause-ov'); if (o) o.remove();
   }
+  var PROCTOR_HTML = '<h2>감독관 요청: 응시 환경 재점검</h2><p>감독관이 응시 환경 재점검을 요청했습니다. 휴대폰 카메라로 책상 위와 주변을 다시 비춘 뒤 확인을 누르세요. 재점검 동안 타이머는 멈춥니다(모의).</p><button class="btn accent large" data-act="resume-pause">재점검 완료</button>';
   function proctorPause() {
     var sec = cur();
     recordTime();
     sec.remain = sec.endAt - now();
     sec.pauseStart = now();
+    sec.pauseKind = 'proctor';
     save();
-    pauseOverlay('<h2>감독관 요청: 응시 환경 재점검</h2><p>감독관이 응시 환경 재점검을 요청했습니다. 휴대폰 카메라로 책상 위와 주변을 다시 비춘 뒤 확인을 누르세요. 재점검 동안 타이머는 멈춥니다(모의).</p><button class="btn accent large" data-act="resume-pause">재점검 완료</button>');
+    pauseOverlay(PROCTOR_HTML);
+    announce('감독관 요청: 응시 환경 재점검');
   }
 
   /* ---------- 전체화면 · 이탈 감지 ---------- */
   function inExam() { return S && ((S.kind === 'apt' && (S.stage === 'question' || S.stage === 'study')) || (S.kind === 'pers' && S.stage === 'part')); }
-  var fsBlocked = false; // iframe 등 전체화면이 불가능한 환경에서는 강제하지 않는다.
+  var fsBlocked = false; // iframe 등 사용자 조작에도 전체화면이 거부되는 환경에서는 강제하지 않는다.
   function fsWanted() { return S && S.settings.mode === 'real' && S.settings.fullscreen && !fsBlocked && document.fullscreenEnabled !== false && !!document.documentElement.requestFullscreen; }
   function enterFullscreen() {
-    if (!fsWanted()) return;
-    var el = document.documentElement;
-    if (!document.fullscreenElement) {
-      el.requestFullscreen().then(guardFullscreen).catch(function () {
-        fsBlocked = true;
-        var ov = document.getElementById('fs-ov'); if (ov) ov.remove();
-        toast('이 환경에서는 전체화면을 사용할 수 없어 일반 화면으로 진행합니다.');
-      });
-    }
+    if (!fsWanted() || document.fullscreenElement) return;
+    // 자동 시작처럼 사용자 조작이 없는 경로에서는 요청하지 않고 복귀 안내만 띄운다(브라우저가 거부하기 때문).
+    var gesture = navigator.userActivation ? navigator.userActivation.isActive : true;
+    if (!gesture) { guardFullscreen(); return; }
+    document.documentElement.requestFullscreen().then(guardFullscreen).catch(function () {
+      fsBlocked = true;
+      var ov = document.getElementById('fs-ov'); if (ov) ov.remove();
+      toast('이 환경에서는 전체화면을 사용할 수 없어 일반 화면으로 진행합니다.');
+    });
   }
   function exitFullscreen() { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {}); }
   function guardFullscreen() {
@@ -665,6 +733,9 @@
       th.onpointerup = function () { th.onpointermove = null; };
     });
     document.body.appendChild(p);
+    // 좁은 화면에서 패널이 화면 밖으로 나가지 않게 한다.
+    p.style.left = Math.max(8, Math.min(x, window.innerWidth - p.offsetWidth - 8)) + 'px';
+    p.style.top = Math.max(8, Math.min(y, window.innerHeight - p.offsetHeight - 8)) + 'px';
     return p;
   }
   function openMemo() {
@@ -867,10 +938,11 @@
     ids.forEach(function (id, k) {
       var text = demo ? texts[k] : (map[id] ? map[id].text : id);
       var v = demo ? (S._demo || {})[id] : S.answers[id];
-      h += '<tr><td class="stmt"><span class="no">' + String.fromCharCode(65 + k) + '</span>' + esc(text) + '</td>';
-      for (var c = 1; c <= lk; c++) h += '<td><button class="lk' + (v === c ? ' on' : '') + '" data-act="lk" data-id="' + id + '" data-v="' + c + '"' + (demo ? ' data-demo="1"' : '') + '>' + c + '</button></td>';
-      h += '<td class="sep"><button class="fc near' + (f.near === id ? ' on' : '') + '" data-act="fc" data-b="' + bi + '" data-id="' + id + '" data-w="near"' + (demo ? ' data-demo="1"' : '') + '>가</button></td>';
-      h += '<td><button class="fc far' + (f.far === id ? ' on' : '') + '" data-act="fc" data-b="' + bi + '" data-id="' + id + '" data-w="far"' + (demo ? ' data-demo="1"' : '') + '>멀</button></td></tr>';
+      var L = String.fromCharCode(65 + k);
+      h += '<tr><td class="stmt"><span class="no">' + L + '</span>' + esc(text) + '</td>';
+      for (var c = 1; c <= lk; c++) h += '<td><button class="lk' + (v === c ? ' on' : '') + '" data-act="lk" data-id="' + id + '" data-v="' + c + '"' + (demo ? ' data-demo="1"' : '') + ' aria-pressed="' + (v === c) + '" aria-label="진술 ' + L + ', ' + c + '점 ' + labels[c - 1] + '">' + c + '</button></td>';
+      h += '<td class="sep"><button class="fc near' + (f.near === id ? ' on' : '') + '" data-act="fc" data-b="' + bi + '" data-id="' + id + '" data-w="near"' + (demo ? ' data-demo="1"' : '') + ' aria-pressed="' + (f.near === id) + '" aria-label="진술 ' + L + '를 가장 가까운 것으로">가</button></td>';
+      h += '<td><button class="fc far' + (f.far === id ? ' on' : '') + '" data-act="fc" data-b="' + bi + '" data-id="' + id + '" data-w="far"' + (demo ? ' data-demo="1"' : '') + ' aria-pressed="' + (f.far === id) + '" aria-label="진술 ' + L + '를 가장 먼 것으로">멀</button></td></tr>';
     });
     return h + '</tbody></table></div>';
   }
@@ -884,8 +956,9 @@
       var v = S.answers[id];
       h += '<tr><td class="stmt"><span class="no">' + (startNo + k) + '</span>' + esc(map[id] ? map[id].text : id) + '</td>';
       for (var c = 1; c <= max; c++) {
-        h += max === 2 ? '<td><button class="yn' + (v === c ? ' on' : '') + '" data-act="lk" data-id="' + id + '" data-v="' + c + '">' + labels[c - 1] + '</button></td>'
-          : '<td><button class="lk' + (v === c ? ' on' : '') + '" data-act="lk" data-id="' + id + '" data-v="' + c + '">' + c + '</button></td>';
+        var aria = ' aria-pressed="' + (v === c) + '" aria-label="' + (startNo + k) + '번 문항, ' + (max === 2 ? '' : c + '점 ') + labels[c - 1] + '"';
+        h += max === 2 ? '<td><button class="yn' + (v === c ? ' on' : '') + '" data-act="lk" data-id="' + id + '" data-v="' + c + '"' + aria + '>' + labels[c - 1] + '</button></td>'
+          : '<td><button class="lk' + (v === c ? ' on' : '') + '" data-act="lk" data-id="' + id + '" data-v="' + c + '"' + aria + '>' + c + '</button></td>';
       }
       h += '</tr>';
     });
@@ -946,20 +1019,45 @@
     startTick();
   }
 
+  /* 페이지 제한시간이 여러 번 지났으면(백그라운드 탭, 이어서 응시) 그만큼 페이지를 넘긴다. */
+  function catchUpPages() {
+    var moved = 0;
+    while (S.stage === 'part' && S.settings.pageTimer && S.pageEndAt <= now() && persRemain() > 0 && moved < 400) {
+      moved++;
+      S.timedOutPages = (S.timedOutPages || 0) + 1;
+      if (S.page < persPages(S, S.part) - 1) { S.page++; S.pageEndAt += PAGE_SECONDS[S.part] * 1000; }
+      else if (S.part === 0) { S.part = 1; S.page = 0; S.stage = 'between'; }
+      else { S.stage = 'complete'; S.finishedAt = now(); }
+    }
+    return moved;
+  }
+  function persTimeUp() {
+    var cfg = persTimingCfg(S);
+    if (cfg.parts && S.part === 0) { S.part = 1; S.page = 0; S.stage = 'between'; return 'Ⅰ부 제한시간이 끝났습니다.'; }
+    S.stage = 'complete'; S.finishedAt = now();
+    return '인성검사 제한시간이 끝나 자동 제출되었습니다.';
+  }
+
   function persTick() {
+    if (S.stage === 'between' && !persTimingCfg(S).parts) {
+      var left = S.totalEndAt - now();
+      var bl = document.getElementById('between-left'); if (bl) bl.textContent = mmss(left);
+      if (left <= 0) { stopTick(); S.stage = 'complete'; S.finishedAt = now(); save(); route(); modal('시간 종료', '인성검사 제한시간이 끝나 자동 제출되었습니다.'); }
+      return;
+    }
     if (S.stage !== 'part') return;
     var rem = persRemain();
     setTimerView(rem);
+    if (rem <= 0) { stopTick(); var msg = persTimeUp(); save(); route(); modal('시간 종료', msg); return; }
     if (S.settings.pageTimer) {
       var pl = S.pageEndAt - now();
       var pt = document.getElementById('page-timer'); if (pt) pt.textContent = mmss(pl);
-      if (pl <= 0 && rem > 0) { S.timedOutPages = (S.timedOutPages || 0) + 1; persAdvance(true); return; }
-    }
-    if (rem <= 0) {
-      stopTick();
-      var cfg = persTimingCfg(S);
-      if (cfg.parts && S.part === 0) { S.part = 1; S.page = 0; S.stage = 'between'; save(); route(); modal('시간 종료', 'Ⅰ부 제한시간이 끝났습니다.'); }
-      else { S.stage = 'complete'; S.finishedAt = now(); save(); route(); modal('시간 종료', '인성검사 제한시간이 끝나 자동 제출되었습니다.'); }
+      if (pl <= 0) {
+        catchUpPages();
+        save();
+        if (S.stage === 'part') { persScreen(); toast('페이지 제한시간이 지나 다음 페이지로 넘어갔습니다.'); }
+        else { stopTick(); route(); }
+      }
     }
   }
 
@@ -983,7 +1081,7 @@
   function persBetween() {
     stopTick();
     var cfg = persTimingCfg(S);
-    var h = '<div class="page">' + pageHead(titleOf()) + '<main class="page-body"><div class="card section-intro"><div class="order">Ⅰ부 종료</div><h2>인성검사 Ⅱ부</h2><div class="spec"><span>문항 수 <b>' + S.parts.items.length + '</b></span><span>' + (cfg.parts ? '제한시간 <b>' + cfg.parts[1] + '분</b>' : '남은 시간 <b>' + mmss(S.totalEndAt - now()) + '</b>') + '</span></div><p class="muted">단문 진술에 ' + (part2Max(S) === 2 ? '예/아니오' : part2Max(S) + '점 척도') + '로 답합니다.' + (cfg.parts ? '' : ' 합산 타이머는 계속 흐르고 있습니다.') + '</p><div class="center-actions"><button class="btn primary large" data-act="begin-part2">Ⅱ부 시작</button></div></div></main>' + footer() + '</div>';
+    var h = '<div class="page">' + pageHead(titleOf()) + '<main class="page-body"><div class="card section-intro"><div class="order">Ⅰ부 종료</div><h2>인성검사 Ⅱ부</h2><div class="spec"><span>문항 수 <b>' + S.parts.items.length + '</b></span><span>' + (cfg.parts ? '제한시간 <b>' + cfg.parts[1] + '분</b>' : '남은 시간 <b id="between-left">' + mmss(S.totalEndAt - now()) + '</b>') + '</span></div><p class="muted">단문 진술에 ' + (part2Max(S) === 2 ? '예/아니오' : part2Max(S) + '점 척도') + '로 답합니다.' + (cfg.parts ? '' : ' 합산 타이머는 계속 흐르고 있습니다.') + '</p><div class="center-actions"><button class="btn primary large" data-act="begin-part2">Ⅱ부 시작</button></div></div></main>' + footer() + '</div>';
     show(h);
     if (!cfg.parts) startTick();
   }
@@ -1043,7 +1141,7 @@
       case 'reset-settings': settings = Object.assign({}, DEFAULTS); store.set('settings', settings); home(); break;
       case 'start-apt': case 'retry': { var sn = +t.dataset.set; confirmDiscard().then(function (ok) { if (ok) startApt(sn); }); break; }
       case 'start-pers': { var sp = +t.dataset.set; confirmDiscard().then(function (ok) { if (ok) startPers(sp); }); break; }
-      case 'resume': S = store.get('session', null); proctorFired = !!(S && S.proctorDone); resumeSession(); break;
+      case 'resume': S = loadSession(); proctorFired = !!(S && S.proctorDone); fsBlocked = false; resumeSession(); break;
       case 'discard': store.del('session'); S = null; home(); break;
       case 'goto': S.stage = t.dataset.stage; save(); route(); break;
       case 'cam': startCam(t); break;
@@ -1058,12 +1156,12 @@
       case 'skip-study': stopTick(); activateSection(); save(); route(); break;
       case 'prev': goQ(S.qIdx - 1); break;
       case 'next': goQ(S.qIdx + 1); break;
-      case 'goq': goQ(+t.dataset.q); break;
-      case 'omr': choose(+t.dataset.q, +t.dataset.c); break;
+      case 'goq': if (!ghost(e)) goQ(+t.dataset.q); break;
+      case 'omr': if (e.detail <= 1) choose(+t.dataset.q, +t.dataset.c); break;
       case 'flag': { var sec = cur(), id = sec.ids[S.qIdx]; sec.flags[id] = !sec.flags[id]; if (!sec.flags[id]) delete sec.flags[id]; save(); syncMarks(); break; }
       case 'end-section': confirmEnd(); break;
       case 'peek': refreshQuestionPane(true); break;
-      case 'pause': pause(); break;
+      case 'pause': if (!ghost(e)) pause(); break;
       case 'resume-pause': resumePause(); break;
       case 'fs-enter': enterFullscreen(); break;
       case 'tool-memo': openMemo(); break;
@@ -1082,8 +1180,8 @@
       case 'history': historyModal(); break;
       case 'begin-pers': beginPers(); break;
       case 'begin-part2': beginPart2(); break;
-      case 'lk': persLikert(t); break;
-      case 'fc': persFc(t); break;
+      case 'lk': if (!ghost(e)) persLikert(t); break;
+      case 'fc': if (!ghost(e)) persFc(t); break;
       case 'pers-next': if (persPageComplete()) persAdvance(false); break;
     }
     // 선지 클릭
@@ -1093,6 +1191,7 @@
     var c = e.target.closest('.choice[data-choice]');
     if (!c || !S || S.kind !== 'apt' || S.stage !== 'question') return;
     if (c.closest('.review-item')) return;
+    if (e.detail > 1) return; // 더블클릭의 두 번째 클릭(화면 전환 직후 포함)은 무시
     choose(S.qIdx, +c.dataset.choice);
   });
 
@@ -1100,6 +1199,7 @@
     if (!S || S.kind !== 'apt' || S.stage !== 'question') return;
     if (e.target.closest && e.target.closest('textarea,input,.tool-panel')) return;
     if (document.querySelector('.modal-back,#pause-ov')) return;
+    if (e.target.closest && e.target.closest('button') && (e.key === 'Enter' || e.key === ' ')) return;
     if (/^[1-5]$/.test(e.key)) { choose(S.qIdx, +e.key); e.preventDefault(); }
     else if (e.key === 'ArrowRight') { goQ(S.qIdx + 1); e.preventDefault(); }
     else if (e.key === 'ArrowLeft') { goQ(S.qIdx - 1); e.preventDefault(); }
@@ -1120,7 +1220,7 @@
     home();
   }
   function confirmDiscard() {
-    var pending = store.get('session', null);
+    var pending = loadSession();
     if (!pending || pending.finished || !started(pending)) { store.del('session'); return Promise.resolve(true); }
     return modal('진행 중인 응시', '이어서 응시할 수 있는 기록이 있습니다. 새로 시작하면 이전 응시 기록은 삭제됩니다.', [{ label: '취소', value: false }, { label: '새로 시작', value: true, cls: 'danger' }]).then(function (ok) {
       if (ok) store.del('session');
@@ -1149,14 +1249,19 @@
     document.body.appendChild(back);
   }
 
+  function stopCam() {
+    if (camStream) { camStream.getTracks().forEach(function (tr) { tr.stop(); }); camStream = null; }
+    if (camTimer) { clearTimeout(camTimer); camTimer = null; }
+  }
   function startCam(btn) {
     var v = document.querySelector('.cam-preview');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { modal('카메라', '이 브라우저에서는 카메라 미리보기를 사용할 수 없습니다.'); return; }
+    stopCam();
     navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(function (stream) {
+      if (!document.contains(v)) { stream.getTracks().forEach(function (tr) { tr.stop(); }); return; }
+      camStream = stream;
+      camTimer = setTimeout(stopCam, 60000); // 미리보기는 최대 1분, 화면을 떠나면 바로 끈다.
       v.srcObject = stream; v.classList.remove('hidden'); btn.disabled = true;
-      var stop = function () { stream.getTracks().forEach(function (tr) { tr.stop(); }); };
-      window.addEventListener('hmat-route', stop, { once: true });
-      setTimeout(stop, 60000);
     }).catch(function () { modal('카메라', '카메라 권한이 없거나 장치를 찾을 수 없습니다. 모의고사 진행에는 지장이 없습니다.'); });
   }
 
@@ -1184,7 +1289,7 @@
     if (t.dataset.demo) { S._demo = S._demo || {}; S._demo[id] = v; }
     else { S.answers[id] = v; save(); }
     var row = t.closest('tr');
-    row.querySelectorAll('[data-act="lk"]').forEach(function (b) { b.classList.toggle('on', b === t); });
+    row.querySelectorAll('[data-act="lk"]').forEach(function (b) { b.classList.toggle('on', b === t); b.setAttribute('aria-pressed', String(b === t)); });
     var nx = document.getElementById('pers-next'); if (nx) nx.disabled = !persPageComplete();
     if (!t.dataset.demo) persProgress();
   }
@@ -1197,25 +1302,35 @@
     if (f[other] === id) delete f[other];
     if (!t.dataset.demo) save();
     var block = t.closest('.pers-block');
-    block.querySelectorAll('[data-act="fc"]').forEach(function (b) { b.classList.toggle('on', f[b.dataset.w] === b.dataset.id); });
+    block.querySelectorAll('[data-act="fc"]').forEach(function (b) { var on = f[b.dataset.w] === b.dataset.id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
     var nx = document.getElementById('pers-next'); if (nx) nx.disabled = !persPageComplete();
   }
 
   function resumeSession() {
     if (!S) return home();
+    var note = '';
     if (S.kind === 'apt') {
-      // 흐른 시간 반영: 진행 중 영역이 이미 끝났으면 종료 처리
-      var sec = cur();
-      if (S.stage === 'question' && sec.remain == null && sec.endAt <= now()) { endSection('timeout'); return; }
-      if (S.stage === 'study' && sec.studyEndAt <= now()) { activateSection(); save(); }
-    } else if (S.stage === 'part') {
-      var cfg = persTimingCfg(S);
-      var rem = cfg.parts ? S.partEndAt - now() : S.totalEndAt - now();
-      if (rem <= 0) { if (cfg.parts && S.part === 0) { S.part = 1; S.page = 0; S.stage = 'between'; } else { S.stage = 'complete'; S.finishedAt = now(); } save(); }
-      else if (S.settings.pageTimer && S.pageEndAt <= now()) { S.pageEndAt = now() + PAGE_SECONDS[S.part] * 1000; save(); }
+      // 자리를 비운 동안 흐른 시간을 그대로 반영한다: 자동 시작 → 규칙 숙지 → 문항 → 시간 종료 순으로 따라잡는다.
+      var timedOut = 0;
+      for (var guard = 0; guard < 20; guard++) {
+        var sec = cur();
+        if (S.stage === 'intro' && sec.introEndAt && sec.introEndAt <= now()) { beginSection(sec.introEndAt, true); continue; }
+        if (S.stage === 'study' && sec.studyEndAt <= now()) { activateSection(sec.studyEndAt); save(); continue; }
+        if (S.stage === 'question' && sec.remain == null && sec.endAt <= now()) { endSection('timeout', true); timedOut++; continue; }
+        break;
+      }
+      if (timedOut) note = '자리를 비운 동안 ' + timedOut + '개 영역의 제한시간이 끝나 답안이 자동 제출되었습니다.';
+    } else {
+      if (S.stage === 'part') {
+        if (persRemain() <= 0) note = persTimeUp();
+        else if (catchUpPages()) note = '자리를 비운 동안 페이지 제한시간이 지나 다음 페이지로 넘어갔습니다.';
+      }
+      if (S.stage === 'between' && !persTimingCfg(S).parts && S.totalEndAt <= now()) { S.stage = 'complete'; S.finishedAt = now(); note = '인성검사 제한시간이 끝나 자동 제출되었습니다.'; }
     }
+    save();
     enterFullscreen();
     route();
+    if (note) modal('이어서 응시', note);
   }
 
   window.addEventListener('beforeunload', function () { recordTime(); save(); });

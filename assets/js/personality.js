@@ -123,7 +123,7 @@
     var total = 0, answered = 0, extreme = 0, likertCount = 0;
     var part1Ids = [], part2Ids = sess.parts.items;
     sess.parts.blocks.forEach(function (b) { part1Ids = part1Ids.concat(b); });
-    var normOf = {};
+    var normOf = {}, scaleOf = {};
 
     function take(id, max) {
       var st = map[id]; if (!st) return;
@@ -135,22 +135,36 @@
       var n = norm(v, max);
       var keyed = st.key === -1 ? 1 - n : n;
       normOf[id] = keyed;
+      scaleOf[id] = max;
       if (!st.lie && dimSum[st.dim] != null) { dimSum[st.dim] += keyed; dimN[st.dim]++; }
     }
     part1Ids.forEach(function (id) { take(id, max1); });
     part2Ids.forEach(function (id) { take(id, max2); });
 
-    // 일관성: 같은 pair의 두 진술(키 방향 반영) 차이
-    var pairs = {}, diffs = [];
+    // 일관성: 같은 pair의 두 진술(키 방향 반영) 비교.
+    // 두 진술의 척도가 같으면 정규화 값의 차이를, 다르면(Ⅰ부 리커트 ↔ Ⅱ부 예/아니오) 응답 방향만 비교한다.
+    // 척도가 다른데 한쪽이 '보통이다'(중립)면 방향을 정할 수 없어 비교에서 뺀다.
+    var pairs = {}, diffs = [], bigGaps = 0;
     part1Ids.concat(part2Ids).forEach(function (id) {
       var st = map[id]; if (st && st.pair) (pairs[st.pair] = pairs[st.pair] || []).push(id);
     });
+    function dir(x) { return x > 0.5 ? 1 : x < 0.5 ? -1 : 0; }
     Object.keys(pairs).forEach(function (p) {
       var ids = pairs[p];
-      if (ids.length === 2 && normOf[ids[0]] != null && normOf[ids[1]] != null) diffs.push(Math.abs(normOf[ids[0]] - normOf[ids[1]]));
+      if (ids.length !== 2 || normOf[ids[0]] == null || normOf[ids[1]] == null) return;
+      var a = normOf[ids[0]], b = normOf[ids[1]];
+      if (scaleOf[ids[0]] === scaleOf[ids[1]]) {
+        var d = Math.abs(a - b);
+        diffs.push(d);
+        if (d >= 0.5) bigGaps++;
+      } else {
+        if (!dir(a) || !dir(b)) return;
+        var opposite = dir(a) !== dir(b);
+        diffs.push(opposite ? 1 : 0);
+        if (opposite) bigGaps++;
+      }
     });
-    var consistency = diffs.length ? Math.round(100 * (1 - diffs.reduce(function (a, b) { return a + b; }, 0) / diffs.length)) : null;
-    var bigGaps = diffs.filter(function (d) { return d >= 0.5; }).length;
+    var consistency = diffs.length ? Math.round(100 * (1 - diffs.reduce(function (x, y) { return x + y; }, 0) / diffs.length)) : null;
 
     // 가/멀 선택과 척도 응답의 모순
     var fcConflict = 0, fcTotal = 0, fcMissing = 0, nearByDim = {};

@@ -107,6 +107,14 @@ async function applyPlan(page, plan) {
   return sec.ids.map((id) => sec.answers[id] ?? null);
 }
 
+/* '이어서 응시'를 누르고, 자리를 비운 동안의 자동 처리 안내창이 뜨면 닫는다. */
+async function clickResume(page) {
+  await page.click('[data-act="resume"]');
+  await page.waitForTimeout(150);
+  const note = page.locator('.modal-back .modal', { hasText: '이어서 응시' });
+  if (await note.count()) await note.locator('button').first().click();
+}
+
 async function endSectionByModal(page) {
   await page.click('[data-act="end-section"]');
   const t = await modalText(page);
@@ -436,7 +444,7 @@ scenario(2, '연습 모드: 일시정지 중 타이머 정지, 정답 확인 해
   await page.reload();
   await page.waitForSelector('[data-act="resume"]');
   await page.waitForTimeout(1000);
-  await page.click('[data-act="resume"]');
+  await clickResume(page);
   await waitStage(page, 'question');
   check(await count(page, '#pause-ov') === 1, '새로고침 후 이어서 응시 시 일시정지 화면이 아님');
   S = await st(page);
@@ -469,6 +477,104 @@ scenario(2, '연습 모드: 일시정지 중 타이머 정지, 정답 확인 해
   check(/정답/.test(await text(page, '#content .explain .tag.ok')), '정답 선택 후 정답 확인에 정답 표시 없음');
 });
 
+/* ================= 8) 엔진 QA에서 확정된 결함의 회귀 검사 ================= */
+scenario(8, '회귀: 더블클릭 고스트 클릭, 확인창+감독 재점검, 인성 일관성·합산 시간·페이지 따라잡기', async ({ check, open }) => {
+  // (a) '시작하기' 더블클릭이 1번 문항 답을 고르지 않아야 한다
+  const { page } = await open({ viewport: { width: 1366, height: 860 } });
+  await setSettings(page, { variant: 'H2', mode: 'practice' });
+  await startAptToIntro(page, 1);
+  await page.dblclick('[data-act="start-section"]');
+  await waitStage(page, 'question');
+  let S = await st(page);
+  check(Object.keys(S.sections[0].answers).length === 0, '시작하기 더블클릭 후 1번 문항에 답이 저장됨: ' + JSON.stringify(S.sections[0].answers));
+  // 선지를 더블클릭하면 선택된 상태로 남아야 한다(선택 후 곧바로 해제되지 않음)
+  await page.dblclick('#content .choice[data-choice="2"]');
+  S = await st(page);
+  check(S.sections[0].answers[S.sections[0].ids[0]] === 2, '선지 더블클릭 후 선택이 유지되지 않음');
+
+  // (b) 확인창이 열린 채 감독 재점검 시각이 지나도 화면이 잠기지 않아야 한다
+  const { page: q } = await open();
+  await setSettings(q, { variant: 'H2', mode: 'real', proctorPause: true, fullscreen: false });
+  await q.click('[data-act="start-apt"][data-set="1"]');
+  await q.click('[data-act="goto"][data-stage="checkin"]');
+  await q.click('[data-act="goto"][data-stage="info"]');
+  await q.click('[data-act="confirm-info"]');
+  await q.click('[data-act="begin-apt"]');
+  await startSection(q); await endSectionByModal(q); await waitStage(q, 'intro');
+  await q.evaluate(() => { const S = window.HMATApp.state(); S.proctorTarget = 1; S.proctorFrac = 0.5; });
+  await q.click('[data-act="start-section"]');
+  await waitStage(q, 'question');
+  await q.click('[data-act="end-section"]');
+  await modalText(q);
+  await advance(q, 8 * 60000);           // 재점검 예약 시각(7.5분)을 넘긴다
+  await q.waitForTimeout(600);
+  check(await count(q, '#pause-ov') === 0, '확인창이 열려 있는데 감독 재점검 오버레이가 뜸(미뤄야 함)');
+  await modalClick(q, '제출하고 종료');
+  await waitStage(q, 'intro');
+  check(await count(q, '#pause-ov') === 0, '영역 종료 후 재점검 오버레이가 남아 화면이 잠김');
+  await q.click('[data-act="start-section"]', { timeout: 3000 });
+  await waitStage(q, 'question');
+  check(true, '');
+
+  // (c) 인성: 같은 성향으로 일관되게 답하면 일관성 지수가 높아야 한다(척도가 달라도)
+  const { page: r } = await open();
+  await setSettings(r, { mode: 'practice', persTiming: 'split', pageTimer: false });
+  await r.click('[data-act="start-pers"][data-set="1"]');
+  await r.click('[data-act="confirm-info"]');
+  await r.click('[data-act="begin-pers"]');
+  await r.evaluate(() => {
+    const S = window.HMATApp.state();
+    const bank = Object.fromEntries(window.HMAT.personalityBank.map((x) => [x.id, x]));
+    S.parts.blocks.forEach((b, bi) => { b.forEach((id) => { S.answers[id] = bank[id].key === 1 ? 4 : 2; }); S.fc[bi] = { near: b[0], far: b[1] }; });
+    S.parts.items.forEach((id) => { S.answers[id] = bank[id].key === 1 ? 1 : 2; });
+    S.stage = 'complete';
+  });
+  await r.evaluate(() => window.HMATApp.home());
+  const sc = await r.evaluate(() => window.HMATPersonality.score(window.HMATApp.state() || JSON.parse(localStorage.getItem('hmat-mock:session'))));
+  check(sc.consistency >= 95, `일관된 응답자의 일관성 지수가 ${sc.consistency}점(95점 이상 기대)`);
+
+  // (d) 합산 시간: Ⅰ·Ⅱ부 사이 화면에서도 시간이 흐르고, 끝나면 자동 제출
+  const { page: u } = await open();
+  await setSettings(u, { mode: 'practice', persTiming: 'total80', pageTimer: false });
+  await u.click('[data-act="start-pers"][data-set="2"]');
+  await u.click('[data-act="confirm-info"]');
+  await u.click('[data-act="begin-pers"]');
+  // 마지막 Ⅰ부 페이지(18쪽, 52번째 묶음)로 옮기고 그 묶음을 모두 응답한 상태로 저장한 뒤 이어서 응시
+  await u.evaluate(() => {
+    const S = window.HMATApp.state();
+    S.page = 17;
+    S.parts.blocks.slice(51).forEach((b, k) => { b.forEach((id) => { S.answers[id] = 3; }); S.fc[51 + k] = { near: b[0], far: b[1] }; });
+    localStorage.setItem('hmat-mock:session', JSON.stringify(S));
+  });
+  await u.reload();
+  await u.waitForSelector('[data-act="resume"]');
+  await clickResume(u);
+  await u.click('#pers-next');
+  await waitStage(u, 'between');
+  const t1 = await text(u, '#between-left');
+  await u.waitForTimeout(1300);
+  const t2 = await text(u, '#between-left');
+  check(t1 !== t2, `합산 시간 모드 Ⅰ·Ⅱ부 사이 화면 시간이 멈춰 있음(${t1} → ${t2})`);
+  await advance(u, 81 * 60000);
+  await waitStage(u, 'complete', 3000).catch(() => {});
+  check((await st(u)).stage === 'complete', '합산 시간이 끝났는데 Ⅰ·Ⅱ부 사이 화면에서 자동 제출되지 않음');
+
+  // (e) 페이지 제한시간: 오래 비운 뒤 돌아오면 지난 페이지 수만큼 넘어가야 한다
+  const { page: w } = await open();
+  await setSettings(w, { mode: 'practice', persTiming: 'split', pageTimer: true });
+  await w.click('[data-act="start-pers"][data-set="3"]');
+  await w.click('[data-act="confirm-info"]');
+  await w.click('[data-act="begin-pers"]');
+  const p0 = await st(w);
+  await w.reload();
+  await w.waitForSelector('[data-act="resume"]');
+  await w.clock.setSystemTime(new Date(p0.pageEndAt + 165000 * 2 + 5000)); // 3페이지 분량이 지남
+  await clickResume(w);
+  const pw = await st(w);
+  check(pw.stage === 'part' && pw.page === 3, `페이지 시간 3회 경과 후 이어서 응시 시 ${pw.page + 1}페이지(4페이지 기대)`);
+  check(pw.pageEndAt > await pageNow(w) && pw.pageEndAt - await pageNow(w) < 165000, '따라잡은 뒤 페이지 남은 시간이 원래 일정과 맞지 않음');
+});
+
 /* ================= 3) 새로고침 이어서 응시 ================= */
 scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, 시간 경과 시 다음 영역', async ({ check, open }) => {
   const { page } = await open();
@@ -494,7 +600,7 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   const notice = await text(page, '.notice.info');
   check(/제1회 적성검사/.test(notice), '홈 이어서 응시 안내 문구 오류: ' + notice);
   await page.waitForTimeout(1500);
-  await page.click('[data-act="resume"]');
+  await clickResume(page);
   await waitStage(page, 'question');
   await page.waitForTimeout(400);
   let S = await st(page);
@@ -517,7 +623,7 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   await page.reload();
   await page.waitForSelector('[data-act="resume"]');
   await page.clock.setSystemTime(new Date(before.sections[1].endAt + 60000)); // 종료 시각 1분 뒤에 복귀
-  await page.click('[data-act="resume"]');
+  await clickResume(page);
   await waitStage(page, 'intro');
   S = await st(page);
   check(S.secIdx === 2 && S.sections[1].status === 'done' && S.sections[1].endReason === 'timeout', '영역 시간이 지난 뒤 이어서 응시했는데 다음 영역으로 넘어가지 않음');
@@ -534,7 +640,7 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   await page.reload();
   await page.waitForSelector('[data-act="resume"]');
   await page.clock.setSystemTime(new Date(studyEnd + 13 * 60000)); // 숙지 4분 + 문항 12분이 모두 지난 뒤(숙지 시작 후 17분)
-  await page.click('[data-act="resume"]');
+  await clickResume(page);
   await page.waitForTimeout(600);
   S = await st(page);
   const n = await pageNow(page);
@@ -553,7 +659,7 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   await p2.reload();
   await p2.waitForSelector('[data-act="resume"]');
   await p2.clock.setSystemTime(new Date(studyEnd2 + 60000));
-  await p2.click('[data-act="resume"]');
+  await clickResume(p2);
   await waitStage(p2, 'question');
   S = await st(p2);
   const left = S.sections[3].endAt - await pageNow(p2);
@@ -568,7 +674,7 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   await p3.reload();
   await p3.waitForSelector('[data-act="resume"]');
   await p3.clock.setSystemTime(new Date(introEnd + 2 * 60000));
-  await p3.click('[data-act="resume"]');
+  await clickResume(p3);
   await waitStage(p3, 'question');
   S = await st(p3);
   const left3 = S.sections[0].endAt - await pageNow(p3);
@@ -656,7 +762,7 @@ scenario(4, '인성검사: 가/멀 상호배타, 페이지 완료 전 다음 비
   await page.reload();
   await page.waitForSelector('[data-act="resume"]');
   check(/인성검사/.test(await text(page, '.notice.info')), '홈 이어서 응시 안내에 인성검사가 없음');
-  await page.click('[data-act="resume"]');
+  await clickResume(page);
   await waitStage(page, 'part');
   S = await st(page);
   check(S.part === 0 && S.page === 2, `인성 이어서 응시 위치 오류: ${S.part}부 ${S.page}페이지`);
@@ -807,7 +913,7 @@ scenario(6, '390px 모바일 폭: 홈·문항·인성 화면 가로 스크롤 �
   };
   let navChecked = false;
   const endSec = async (label) => {
-    const endVis = await page.locator('[data-act="end-section"]').isVisible();
+    const endVis = await page.locator('[data-act="end-section"]:visible').count() > 0;
     if (!navChecked) {
       navChecked = true;
       check(endVis, '390px 폭 문항 화면에 [답안 제출(영역 종료)] 버튼이 보이지 않음 — 영역을 일찍 끝낼 방법이 없음');
@@ -815,7 +921,7 @@ scenario(6, '390px 모바일 폭: 홈·문항·인성 화면 가로 스크롤 �
       check(markVis, '390px 폭 문항 화면에 문항 번호 팔레트·답안 표기란이 모두 숨겨짐 — 응답/미응답·검토 표시 확인과 번호 이동 불가');
     }
     if (endVis) {
-      await page.click('[data-act="end-section"]'); await modalText(page); await probe(`${label} 영역 종료 모달`); await modalClick(page, '제출하고 종료');
+      await page.locator('[data-act="end-section"]:visible').first().click(); await modalText(page); await probe(`${label} 영역 종료 모달`); await modalClick(page, '제출하고 종료');
     } else {
       await advance(page, 25 * 60000);   // 우회: 시간 만료로 영역 종료
       await waitFor(page, () => ['intro', 'complete'].includes(window.HMATApp.state().stage));

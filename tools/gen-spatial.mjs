@@ -397,14 +397,24 @@ function threeViewSVG(h) {
   body += svgText(rightX + rb.w * s / 2, frontY + fb.h * s + labelGap + 2, '우측면도', { size: 14, weight: 'bold' });
   return svgDoc(W, H, body, '평면도, 정면도, 우측면도');
 }
-function bitmapChoiceSVGs(bms, labels, { bottomAlign = true } = {}) {
+// frontMark : 평면도 선지에 쓴다. 격자 아래에 위쪽을 가리키는 화살표와 '정면'을 그려, 평면도의 아래쪽이 정면(앞줄)임을
+// 글자와 모양으로 함께 보여 준다(입체 그림의 '정면' 화살표와 같은 방향 약속).
+const FRONT_MARK_H = 30;
+function frontMarkBody(cx, y0) {
+  const tip = [cx, y0 + 4], tail = [cx, y0 + 18];
+  return `<line x1="${fmt(tail[0])}" y1="${fmt(tail[1])}" x2="${fmt(tip[0])}" y2="${fmt(tip[1] + 5)}" stroke="${INK}" stroke-width="1.6"/>`
+    + arrowHead(tip, tail, 7)
+    + svgText(cx + 7, y0 + 18, '정면', { size: 12, anchor: 'start' });
+}
+function bitmapChoiceSVGs(bms, labels, { bottomAlign = true, frontMark = false } = {}) {
   const s = 24, pad = 12;
   const mw = Math.max(...bms.map((b) => b.w)), mh = Math.max(...bms.map((b) => b.h));
-  const W = mw * s + 2 * pad, H = mh * s + 2 * pad;
+  const W = mw * s + 2 * pad, H = mh * s + 2 * pad + (frontMark ? FRONT_MARK_H - 4 : 0);
   return bms.map((b, i) => {
     const ox = pad + (mw - b.w) * s / 2;
     const oy = bottomAlign ? pad + (mh - b.h) * s : pad + (mh - b.h) * s / 2;
-    return svgDoc(W, H, bitmapBody(b, ox, oy, s), labels[i]);
+    const mark = frontMark ? frontMarkBody(W / 2 - 13, pad + mh * s) : ''; // 화살표+글자 묶음이 가운데 오게
+    return svgDoc(W, H, bitmapBody(b, ox, oy, s) + mark, labels[i]);
   });
 }
 
@@ -527,7 +537,7 @@ function buildViewsToSolid(ctx, no, cfg, ansPos) {
       _debug: { figure: h, choices: list },
       subtype: '투상도→입체',
       stem: '다음 투상도에 해당하는 입체도형으로 옳은 것은? (단, 선택지의 화살표 방향이 정면이다)',
-      figure: { svg: threeViewSVG(h), caption: '평면도는 정면도 위에, 우측면도는 정면도 오른쪽에 배치(제3각법)' },
+      figure: { svg: threeViewSVG(h), caption: '제3각법: 평면도는 정면도 위에(평면도의 아래쪽이 정면), 우측면도는 정면도 오른쪽에(우측면도의 왼쪽이 정면) 배치' },
       choiceSvgs,
       answer: ansPos,
       explanation,
@@ -594,7 +604,7 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
       const T = V.top, Y = T.length, X = T[0].length;
       const flipUD = T.slice().reverse();
       const flipLR = T.map((r) => r.slice().reverse());
-      cands.push({ v: topBitmapOf(flipUD), why: '앞뒤가 뒤바뀐 모양(평면도의 위쪽을 앞으로 착각)', kind: 'concept' });
+      cands.push({ v: topBitmapOf(flipUD), why: '앞뒤가 뒤바뀐 모양으로, 맨 앞줄을 정면 표시(아래쪽)가 아니라 위쪽에 그린 것', kind: 'concept' });
       cands.push({ v: topBitmapOf(flipLR), why: '좌우가 뒤바뀐 모양', kind: 'concept' });
       const toggles = [];
       for (let y = 0; y < Y; y++) for (let x = 0; x < X; x++) {
@@ -609,7 +619,7 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
       cands.push(...rng.shuffle(toggles));
       const rowsTxt = [];
       for (let y = 0; y < Y; y++) rowsTxt.push(T[y].map((v) => (v ? '■' : '□')).join(''));
-      rightDesc = `위에서 내려다보면 높이와 관계없이 블록이 놓인 칸만 보인다. 앞줄부터 왼쪽→오른쪽 순서로 ${rowsTxt.join(' / ')} 이므로 평면도는 ${CIRC[ansPos - 1]}이다(그림에서는 앞줄이 맨 아래).`;
+      rightDesc = `위에서 내려다보면 높이와 관계없이 블록이 놓인 칸만 보인다. 앞줄부터 왼쪽→오른쪽 순서로 ${rowsTxt.join(' / ')}이다. 평면도는 정면(앞쪽)이 아래에 오도록 그리므로(선지의 '정면' 화살표 쪽) 맨 앞줄이 맨 아래 줄이 되고, 이에 맞는 것은 ${CIRC[ansPos - 1]}이다.`;
     } else {
       const arr = view === 'front' ? V.front : V.right;
       const other = view === 'front' ? V.right : V.front;
@@ -665,7 +675,10 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
     assert(new Set(list.map(bmKey)).size === 5, `${ctx.id(no)} 투상도 선지 중복`);
     assert(list.filter((b) => bmKey(b) === bmKey(correct)).length === 1, `${ctx.id(no)} 정답 투상도 유일성`);
     ctx.usedTops.add(bmKey(topBitmapOf(V.top)));
-    const choiceSvgs = bitmapChoiceSVGs(list, list.map((_, i) => `${CIRC[i]} 격자 투상도`), { bottomAlign: view !== 'top' });
+    const choiceSvgs = bitmapChoiceSVGs(list, list.map((_, i) => `${CIRC[i]} 격자 투상도`), { bottomAlign: view !== 'top', frontMark: view === 'top' });
+    // 평면도는 위아래(앞뒤) 방향을 정하는 약속이 없으면 앞뒤를 뒤집은 선지도 맞다고 볼 수 있다.
+    // 그래서 평면도 선지에는 모두 '정면' 표시를 넣고, 앞뒤를 뒤집은 오답이 있으면 발문·그림 설명에도 약속을 적는다.
+    if (view === 'top') choiceSvgs.forEach((s, i) => assert(s.includes('>정면</text>'), `${ctx.id(no)} 평면도 선지 ${CIRC[i]} 정면 표시`));
     const wrongs = meta.map((m, i) => (m ? `${j(CIRC[i], '은/는')} ${m.why}이다.` : null)).filter(Boolean);
     const readTxt = view === 'top' ? '' : `, 빈칸 ${h.flat().filter((v) => v === 0).length}개(바닥 모두 보임), 답을 정하는 기둥 윗면 모두 보임`;
     ctx.log(no, `${VIEW_NAME[view]} 묻기, 블록 ${hmCount(h)}개${readTxt}, 오답 [${meta.filter(Boolean).map((m) => m.kind).join(',')}], 정답 비트맵 유일`);
@@ -673,8 +686,10 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
     return {
       _debug: { figure: h, choices: list.map((b) => b.rows) },
       subtype: '입체→투상도',
-      stem: `다음 입체도형을 ${dirWord}으로 옳은 것은? (단, 화살표 방향이 정면이다)`,
-      figure: { svg: isoSVGs([h], 28, { arrow: true }, ['블록 입체'])[0], caption: '' },
+      stem: view === 'top'
+        ? `다음 입체도형을 ${dirWord}으로 옳은 것은? (단, 화살표 방향이 정면이며, 평면도는 정면 쪽이 아래에 오도록 그린다)`
+        : `다음 입체도형을 ${dirWord}으로 옳은 것은? (단, 화살표 방향이 정면이다)`,
+      figure: { svg: isoSVGs([h], 28, { arrow: true }, ['블록 입체'])[0], caption: view === 'top' ? '평면도는 정면(앞쪽)이 아래에 오도록 그린다. 선지의 ‘정면’ 화살표가 입체의 정면 쪽이다.' : '' },
       choiceSvgs,
       answer: ansPos,
       explanation: `정답 ${CIRC[ansPos - 1]}: ${rightDesc}<br>` + wrongs.join('<br>'),
@@ -1273,11 +1288,18 @@ function buildCount(ctx, no, cfg, ansPos) {
     const gridTxt = `칸마다 높이를 앞줄부터 왼쪽→오른쪽 순서로 적으면 ${grid}이고, 모두 더해도 ${N}개이다${holes ? `(0은 바닥판이 그대로 드러난 빈칸 ${holes}개로, 가려진 곳이 아니라 비어 있는 칸이다)` : ''}.`;
     const value = cfg.mode === 'cuboid' ? X * Y * maxH - N : N;
     if (value < 5) continue;
+    // 숫자 선지는 관례대로 오름차순이므로 정답이 ①이나 ⑤에 오면 '가장 작은(큰) 값 고르기'로 맞힐 수 있다.
+    // 정답은 ②~④에만 두어 오답이 정답의 양쪽(적게 센 값, 많게 센 값)에 모두 있게 한다.
+    assert(ansPos >= 2 && ansPos <= 4, `${ctx.id(no)} 숫자 선지의 정답 위치 ${ansPos}는 ②~④여야 함`);
     const nums = [];
     for (let i = 1; i <= 5; i++) nums.push(value + (i - ansPos));
     assert(nums[ansPos - 1] === value && nums.every((v) => v > 0), '숫자 선지');
+    assert(nums.some((v) => v < value) && nums.some((v) => v > value), `${ctx.id(no)} 오답이 정답 양쪽에 있어야 함`);
+    const lows = nums.filter((v) => v < value), highs = nums.filter((v) => v > value);
+    const pos = (v) => CIRC[nums.indexOf(v)];
+    const listTxt = (vs) => vs.map((v) => `${pos(v)} ${v}개`).join(', ');
     const lv = levels.map((n, i) => `${i + 1}층 ${n}개`).join(' + ');
-    ctx.log(no, `${cfg.mode === 'cuboid' ? '직육면체 완성' : '개수 세기'}: ${X}×${Y}×${maxH}, 블록 ${N}개(빈칸 ${holes}개, 바닥 모두 보임) → 정답 ${value}, 가시성 검사(대안 ${vis.tested}가지) 통과`);
+    ctx.log(no, `${cfg.mode === 'cuboid' ? '직육면체 완성' : '개수 세기'}: ${X}×${Y}×${maxH}, 블록 ${N}개(빈칸 ${holes}개, 바닥 모두 보임) → 정답 ${value}, 선지 ${nums[0]}~${nums[4]}(정답 ${CIRC[ansPos - 1]}, 아래 ${lows.length}개·위 ${highs.length}개), 가시성 검사(대안 ${vis.tested}가지) 통과`);
     if (cfg.mode === 'cuboid') {
       return {
         _debug: { figure: h },
@@ -1286,7 +1308,7 @@ function buildCount(ctx, no, cfg, ansPos) {
         figure: { svg: isoSVGs([h], 28, { arrow: false }, ['블록 더미'])[0], caption: '' },
         choices: nums.map((v) => `${v}개`),
         answer: ansPos,
-        explanation: `정답 ${CIRC[ansPos - 1]}: 가장 작은 직육면체는 가로 ${X}칸 × 세로 ${Y}칸 × 높이 ${maxH}층이므로 ${X * Y * maxH}개가 필요하다. 지금 있는 블록은 층별로 세면 ${lv} = ${N}개이므로 ${X * Y * maxH} − ${N} = ${value}개가 더 필요하다.<br>${gridTxt}<br>${CIRC[ansPos === 1 ? 1 : ansPos - 2]}처럼 답이 1~2개 어긋나는 것은 아래층에 가려진 블록을 빠뜨리거나 두 번 센 경우이다.`,
+        explanation: `정답 ${CIRC[ansPos - 1]}: 가장 작은 직육면체는 가로 ${X}칸 × 세로 ${Y}칸 × 높이 ${maxH}층이므로 ${X * Y * maxH}개가 필요하다. 지금 있는 블록은 층별로 세면 ${lv} = ${N}개이므로 ${X * Y * maxH} − ${N} = ${value}개가 더 필요하다.<br>${gridTxt}<br>${listTxt(highs)}처럼 더 많이 필요하다고 답한 것은 앞쪽 기둥에 가려 보이지 않는 아래층·뒤쪽 블록을 빠뜨려 지금 있는 블록을 적게 센 경우이다. ${listTxt(lows)}처럼 적게 답한 것은 같은 블록을 옆면과 윗면에서 두 번 세어 지금 있는 블록을 실제보다 많게 센 경우이다.`,
       };
     }
     return {
@@ -1296,7 +1318,7 @@ function buildCount(ctx, no, cfg, ansPos) {
       figure: { svg: isoSVGs([h], 28, { arrow: false }, ['블록 더미'])[0], caption: '' },
       choices: nums.map((v) => `${v}개`),
       answer: ansPos,
-      explanation: `정답 ${CIRC[ansPos - 1]}: 층별로 센다. 바닥(1층)에는 블록이 놓인 칸 수만큼, 2층 이상에는 그 높이 이상인 칸 수만큼 있다. ${lv} = ${N}개.<br>위에서 본 칸마다 높이를 적어 더해도 된다. ${gridTxt}<br>답이 1~2개 어긋나는 선지는 뒤쪽 열이나 아래층에 가려진 블록을 빠뜨리거나 두 번 센 경우이다.`,
+      explanation: `정답 ${CIRC[ansPos - 1]}: 층별로 센다. 바닥(1층)에는 블록이 놓인 칸 수만큼, 2층 이상에는 그 높이 이상인 칸 수만큼 있다. ${lv} = ${N}개.<br>위에서 본 칸마다 높이를 적어 더해도 된다. ${gridTxt}<br>${listTxt(lows)}처럼 적게 센 것은 앞쪽 기둥에 가려 보이지 않는 아래층·뒤쪽 블록을 빠뜨린 경우이다. ${listTxt(highs)}처럼 많게 센 것은 같은 블록을 옆면과 윗면에서 두 번 세었${holes ? '거나, 바닥판이 드러난 빈칸에도 블록이 있다고 본' : '던'} 경우이다.`,
     };
   }
   throw new Error(`${ctx.id(no)} 블록 개수 생성 실패`);
@@ -1356,6 +1378,28 @@ function balancedAnswers(rng, n) {
   for (let i = 0; i < n; i++) base.push((i % 5) + 1);
   return rng.shuffle(base);
 }
+// 숫자 선지(오름차순) 문항의 정답이 ①·⑤이면, 다른 문항과 정답 번호를 맞바꿔 정답을 ③(없으면 ②·④)에 둔다.
+// 오답이 정답 양쪽에 2개씩 놓여 '가장 작은(큰) 값 고르기'가 통하지 않는다.
+// 회차 안 분포(번호마다 2개)는 그대로이고, 바뀌는 문항은 1개뿐이다. 같은 번호 3연속이 생기는 자리는 피한다.
+function keepNumericAnswersInside(answers, numericIdx) {
+  const a = answers.slice();
+  const run3 = (arr) => arr.some((v, i) => i >= 2 && v === arr[i - 1] && v === arr[i - 2]);
+  for (const ni of numericIdx) {
+    if (a[ni] >= 2 && a[ni] <= 4) continue;
+    let done = false;
+    for (const want of [[3], [2, 4]]) {
+      for (let k = a.length - 1; k >= 0 && !done; k--) {
+        if (k === ni || numericIdx.includes(k) || !want.includes(a[k])) continue;
+        const b = a.slice(); [b[ni], b[k]] = [b[k], b[ni]];
+        if (run3(b)) continue;
+        a.splice(0, a.length, ...b); done = true;
+      }
+      if (done) break;
+    }
+    assert(done, '숫자 선지 정답 위치 조정 실패');
+  }
+  return a;
+}
 
 function buildSet(setNo) {
   const plan = SET_PLANS[setNo];
@@ -1366,7 +1410,7 @@ function buildSet(setNo) {
     log: (no, msg) => logs.push(`  ${ctx.id(no)} ${msg}`),
     usedTops: new Set(),
   };
-  const answers = balancedAnswers(new Rng(hashSeed(SEEDS[setNo], 'answers')), 10);
+  const answers = keepNumericAnswersInside(balancedAnswers(new Rng(hashSeed(SEEDS[setNo], 'answers')), 10), [9]);
   const raw = [];
   plan.v2s.forEach((cfg, i) => raw.push(buildViewsToSolid(ctx, i + 1, cfg, answers[i])));
   plan.s2v.forEach((cfg, i) => raw.push(buildSolidToView(ctx, 5 + i, cfg, answers[4 + i])));
@@ -1391,7 +1435,14 @@ function validateItems(setNo, items) {
     const svgs = [];
     if (it.figure) svgs.push(it.figure.svg);
     if (it.choiceSvgs) { assert(it.choiceSvgs.length === 5 && !it.choices, `${it.id} choiceSvgs`); svgs.push(...it.choiceSvgs); assert(new Set(it.choiceSvgs).size === 5, `${it.id} 선지 그림 중복`); }
-    else assert(Array.isArray(it.choices) && it.choices.length === 5 && new Set(it.choices).size === 5, `${it.id} choices`);
+    else {
+      assert(Array.isArray(it.choices) && it.choices.length === 5 && new Set(it.choices).size === 5, `${it.id} choices`);
+      const ns = it.choices.map((c) => parseInt(c, 10));
+      if (ns.every(Number.isFinite)) {
+        assert(ns.every((v, k) => k === 0 || v > ns[k - 1]), `${it.id} 숫자 선지 오름차순`);
+        assert(it.answer >= 2 && it.answer <= 4, `${it.id} 숫자 선지 정답이 가장 작은/큰 값(${CIRC[it.answer - 1]})`);
+      }
+    }
     for (const s of svgs) {
       assert(s.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="'), `${it.id} svg 머리`);
       const head = s.slice(0, s.indexOf('>'));

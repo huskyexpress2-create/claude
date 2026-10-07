@@ -94,6 +94,7 @@
 
   function choicesHtml(item, opts) {
     var dis = opts.interactive ? '' : ' tabindex="-1"';
+    function pressed(i) { return opts.reveal ? '' : ' aria-pressed="' + (opts.selected === i + 1) + '"'; }
     if (item.choiceCharts || item.choiceSvgs) {
       var visuals = item.choiceCharts
         ? item.choiceCharts.map(function (c) { return (c.title ? '<div class="mat-title" style="font-size:12px">' + rich(c.title) + '</div>' : '') + HMATCharts.render(c, { width: 340, height: c.type === 'pie' ? 210 : 230 }); })
@@ -101,13 +102,13 @@
       var wide = item.choiceSvgs && !item.choiceCharts;
       var h = '<div class="choice-grid' + (wide ? ' five-wide' : ' charts') + '">';
       visuals.forEach(function (v, i) {
-        h += '<button type="button" class="choice' + choiceState(i, opts) + '" data-choice="' + (i + 1) + '"' + dis + '><span class="mk">' + (i + 1) + '</span><div class="vis">' + v + '</div></button>';
+        h += '<button type="button" class="choice' + choiceState(i, opts) + '" data-choice="' + (i + 1) + '"' + dis + pressed(i) + ' aria-label="' + (i + 1) + '번 선지"><span class="mk">' + (i + 1) + '</span><div class="vis" aria-hidden="true">' + v + '</div></button>';
       });
       return h + '</div>';
     }
     var out = '<ul class="choices">';
     (item.choices || []).forEach(function (c, i) {
-      out += '<li><button type="button" class="choice' + choiceState(i, opts) + '" data-choice="' + (i + 1) + '"' + dis + '><span class="mk">' + (i + 1) + '</span><span>' + rich(c) + '</span></button></li>';
+      out += '<li><button type="button" class="choice' + choiceState(i, opts) + '" data-choice="' + (i + 1) + '"' + dis + pressed(i) + '><span class="mk">' + (i + 1) + '</span><span>' + rich(c) + '</span></button></li>';
     });
     return out + '</ul>';
   }
