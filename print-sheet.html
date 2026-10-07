@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HMAT 모의고사 연습장</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Pretendard, 'Noto Sans KR', 'Malgun Gothic', sans-serif; color: #111; background: #fff; }
+  .bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; gap: 10px; flex-wrap: wrap; }
+  .bar button { padding: 8px 16px; font-size: 14px; border-radius: 6px; border: 1px solid #1f2a44; background: #1f2a44; color: #fff; cursor: pointer; }
+  .sheet { width: 100%; max-width: 186mm; margin: 0 auto 12px; border: 1.5px solid #111; padding: 6mm; }
+  .head { display: flex; justify-content: space-between; font-size: 12px; border-bottom: 1px solid #111; padding-bottom: 3mm; margin-bottom: 3mm; gap: 8px; flex-wrap: wrap; }
+  .grid { height: 245mm; background-image: linear-gradient(#cfd3da 1px, transparent 1px), linear-gradient(90deg, #cfd3da 1px, transparent 1px); background-size: 5mm 5mm; border: 1px solid #cfd3da; }
+  .note { font-size: 11px; color: #555; margin: 0 16px 12px; }
+  @media print { .bar, .note { display: none; } .sheet { margin: 0; page-break-after: always; } }
+  @media (max-width: 700px) { .grid { height: 140vw; } }
+</style>
+</head>
+<body>
+<div class="bar"><b>연습장 양식 (A4, 앞·뒷면용 2매)</b><button onclick="window.print()">인쇄</button></div>
+<p class="note">온라인 HMAT 후기에서는 인쇄한 연습장을 L자 투명파일에 넣고 보드마카로 필기한 뒤, 시험이 끝나면 카메라 앞에서 지우는 방식이 보고되었습니다. 실제 규정은 응시 안내문을 따르세요. 이 양식은 비공식 연습용입니다.</p>
+<div class="sheet"><div class="head"><span>HMAT 모의고사 연습장 (비공식) — 앞면</span><span>수험번호: ____________ &nbsp; 성명: ________</span></div><div class="grid"></div></div>
+<div class="sheet"><div class="head"><span>HMAT 모의고사 연습장 (비공식) — 뒷면</span><span>수험번호: ____________ &nbsp; 성명: ________</span></div><div class="grid"></div></div>
+</body>
+</html>
