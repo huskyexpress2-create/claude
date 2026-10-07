@@ -487,6 +487,7 @@ scenario(8, '회귀: 더블클릭 고스트 클릭, 확인창+감독 재점검, 
   await waitStage(page, 'question');
   let S = await st(page);
   check(Object.keys(S.sections[0].answers).length === 0, '시작하기 더블클릭 후 1번 문항에 답이 저장됨: ' + JSON.stringify(S.sections[0].answers));
+  check(await page.locator('[data-act="end-section"]:visible').count() === 1, '데스크톱(1366px)에 영역 종료 버튼이 1개가 아님(모바일 전용 버튼이 보임)');
   // 선지를 더블클릭하면 선택된 상태로 남아야 한다(선택 후 곧바로 해제되지 않음)
   await page.dblclick('#content .choice[data-choice="2"]');
   S = await st(page);

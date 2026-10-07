@@ -75,7 +75,11 @@
     var h = '<div class="q-wrap">';
     h += '<p class="q-stem"><span class="q-num">' + opts.number + '.</span>' + rich(item.stem) + '</p>';
     if (item.figure && item.figure.svg) {
-      h += '<div class="q-figure">' + item.figure.svg + (item.figure.caption ? '<div class="cap">' + rich(item.figure.caption) + '</div>' : '') + '</div>';
+      // svgNarrow가 있으면 넓은 화면에는 svg를, 좁은 화면(휴대폰)에는 같은 그림을 여러 줄로 배치한 svgNarrow를 보여 준다(app.css).
+      var fig = item.figure.svgNarrow
+        ? '<div class="fig-wide">' + item.figure.svg + '</div><div class="fig-narrow">' + item.figure.svgNarrow + '</div>'
+        : item.figure.svg;
+      h += '<div class="q-figure">' + fig + (item.figure.caption ? '<div class="cap">' + rich(item.figure.caption) + '</div>' : '') + '</div>';
     }
     h += boxHtml(item.box);
     h += choicesHtml(item, opts);

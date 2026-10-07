@@ -86,6 +86,7 @@ function checkItem(setNo, key, it, idx) {
     if (new Set(it.choiceSvgs).size !== 5) err(`${where}: 동일한 SVG 선지가 있음`);
   }
   if (it.figure && !/^<svg[\s\S]*<\/svg>\s*$/.test(it.figure.svg || '')) err(`${where}: figure SVG 형식`);
+  if (it.figure && it.figure.svgNarrow !== undefined && !/^<svg[\s\S]*<\/svg>\s*$/.test(it.figure.svgNarrow || '')) err(`${where}: figure 좁은 화면용 SVG(svgNarrow) 형식`);
   [it.passage, it.stem, it.explanation, it.passageTitle].forEach((s) => checkRich(where, s));
   if (it.box) { if (!it.box.title || !Array.isArray(it.box.items) || !it.box.items.length) err(`${where}: box 형식`); (it.box.items || []).forEach((s) => checkRich(where, s)); }
   (it.materials || []).forEach((m, i) => checkMaterial(`${where} 자료${i + 1}`, m));

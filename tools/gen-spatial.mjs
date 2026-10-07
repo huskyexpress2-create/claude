@@ -465,12 +465,136 @@ const hmSlots = (h) => h.flat().map(String);
 function bmCells(b) { const s = new Set(); b.rows.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '1') s.add(`${c},${b.h - 1 - r}`); })); return s; }
 function bmDist(a, b) { const A = bmCells(a), B = bmCells(b); let n = 0; for (const k of A) if (!B.has(k)) n++; for (const k of B) if (!A.has(k)) n++; return n; }
 function bmSlots(W, H) { return (b) => { const s = bmCells(b); const out = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out.push(s.has(`${x},${y}`) ? '1' : '0'); return out; }; }
+// 구조 단서용 : 격자 그림(투상도 비트맵)과 높이맵의 회전·반전(8가지, 가로세로가 바뀌는 회전 포함) 동치류 키, 포함 관계, 대칭
+const D8 = [([x, y]) => [x, y], ([x, y]) => [-y, x], ([x, y]) => [-x, -y], ([x, y]) => [y, -x], ([x, y]) => [-x, y], ([x, y]) => [x, -y], ([x, y]) => [y, x], ([x, y]) => [-y, -x]];
+const cellsTf = (cells, t) => { const pts = cells.map((p) => D8[t](p)); const mx = Math.min(...pts.map((p) => p[0])), my = Math.min(...pts.map((p) => p[1])); return pts.map(([x, y]) => `${x - mx},${y - my}`).sort().join(';'); };
+const bmCellList = (b) => [...bmCells(b)].map((k) => k.split(',').map(Number));
+const bmCanon = (b) => { const c = bmCellList(b); return [0, 1, 2, 3, 4, 5, 6, 7].map((t) => cellsTf(c, t)).sort()[0]; };
+const bmSym = (b) => { const c = bmCellList(b), k0 = cellsTf(c, 0); return [1, 2, 3, 4, 5, 6, 7].some((t) => cellsTf(c, t) === k0); };
+const bmSub = (a, b) => { const A = bmCells(a), B = bmCells(b); return A.size < B.size && [...A].every((k) => B.has(k)); };
+const BM_CUE_OPTS = { canon: bmCanon, sub: bmSub, size: (b) => bmCells(b).size, sym: bmSym, dist: bmDist };
+const hmCubes = (h) => h.flatMap((r, y) => r.flatMap((v, x) => Array.from({ length: v }, (_, z) => [x, y, z])));
+const hmTfKey = (h, t) => {
+  const pts = hmCubes(h).map(([x, y, z]) => [...D8[t]([x, y]), z]);
+  const mx = Math.min(...pts.map((p) => p[0])), my = Math.min(...pts.map((p) => p[1]));
+  return pts.map(([a, b, z]) => `${a - mx},${b - my},${z}`).sort().join(';');
+};
+const hmCanonKey = (h) => [0, 1, 2, 3, 4, 5, 6, 7].map((t) => hmTfKey(h, t)).sort()[0];
+const hmSymm = (h) => { const k0 = hmTfKey(h, 0); return [1, 2, 3, 4, 5, 6, 7].some((t) => hmTfKey(h, t) === k0); };
+const hmSub = (a, b) => a.every((r, y) => r.every((v, x) => v <= b[y][x])) && hmCount(a) < hmCount(b);
+const HM_CUE_OPTS = { canon: hmCanonKey, sub: hmSub, size: hmCount, sym: hmSymm, dist: hmDist, slots: hmSlots };
+
 // rng로 배열에서 서로 다른 원소 k개를 뽑는다.
 function sampleK(rng, arr, k) {
   if (k > arr.length) return null;
   const idx = new Set();
   while (idx.size < k) idx.add(rng.int(arr.length));
   return [...idx].map((i) => arr[i]);
+}
+
+// ─────────────── 찍기 단서 점검 2 : 선지끼리의 구조(회전·반전 동치류, 포함 관계, 개수, 대칭) ───────────────
+/**
+ * 그림을 풀지 않고 선지끼리의 관계만 보고 고를 수 있는 단서를 모은다. 단서마다 '그 단서를 따르면 고르게 되는 선지 번호'의
+ * 집합을 만들고(모든 선지를 가리키거나 아무것도 가리키지 않는 단서는 정보가 없으므로 뺀다), 다음이면 실패로 본다.
+ *  - 단서 하나가 정답 하나만 가리킨다.
+ *  - 두 단서가 함께 가리키는 선지(교집합)가 정답 하나뿐이다(예: '회전·반전 묶음' ∩ '다른 선지를 포함하는 선지').
+ * o.canon(x)  : 회전·반전으로 겹쳐지는 선지끼리 같은 값(동치류 키). 없으면 D4 단서를 쓰지 않는다.
+ * o.sub(a, b) : a가 b의 진부분집합인가. 없으면 포함 단서를 쓰지 않는다.
+ * o.size(x)   : 원소 수(구멍 수 등). o.sym(x) : 자기 자신과 겹쳐지는 회전·반전이 있는가(대칭 모양).
+ * o.dist, o.slots : 기존 중심(medoid)·최원점·자리별 다수결 단서.
+ *
+ *  D4BIG   회전·반전 동치류 중 가장 큰 묶음(크기 2 이상이고 하나뿐일 때). '정답의 회전·반전으로 오답을 만들었다'는 짐작
+ *  D4ODD   동치류 크기가 같은 선지가 자기 하나뿐인 선지(예: 다른 선지는 모두 짝이 있는데 혼자 짝이 없는 선지)
+ *  SUP1 / SUB1       다른 선지 하나 이상의 진상위집합 / 진부분집합   SUPALL / SUBALL  다른 모든 선지의 상위집합 / 부분집합
+ *  MAXIMAL / MINIMAL 다른 어떤 선지에도 포함되지 않는 / 다른 어떤 선지도 포함하지 않는 선지
+ *  CMAX / CMIN       원소 수가 가장 많은 / 적은 선지                 SYM / ASYM  대칭인 / 대칭이 아닌 선지
+ *  REL     회전·반전 동치와 포함 관계를 간선으로 볼 때 이웃이 가장 많은 선지(여러 구조가 겹치는 선지)
+ *  MEDOID / OUTLIER / MAJ  차이 합이 가장 작은 / 가장 큰 선지, 자리별 다수결 조합이 될 수 있는 선지
+ */
+function structureCues(list, ans, o) {
+  const n = list.length, ids = list.map((_, i) => i);
+  const C = {};
+  const put = (name, arr) => { if (arr.length && arr.length < n) C[name] = new Set(arr); };
+  let classes = null;
+  if (o.canon) {
+    const keys = list.map(o.canon);
+    const csize = keys.map((k) => keys.filter((q) => q === k).length);
+    const mx = Math.max(...csize);
+    classes = [...new Set(keys)].map((k) => ids.filter((i) => keys[i] === k));
+    if (mx >= 2) {
+      if (classes.filter((c) => c.length === mx).length === 1) put('D4BIG', ids.filter((i) => csize[i] === mx));
+      const bySize = new Map();
+      csize.forEach((s, i) => bySize.set(s, [...(bySize.get(s) || []), i]));
+      put('D4ODD', [...bySize.values()].filter((v) => v.length === 1).flat());
+    }
+  }
+  const rel = ids.map(() => 0);
+  if (o.sub) {
+    const S = (a, b) => o.sub(list[a], list[b]);
+    const others = (i) => ids.filter((k) => k !== i);
+    put('SUP1', ids.filter((i) => others(i).some((k) => S(k, i))));
+    put('SUB1', ids.filter((i) => others(i).some((k) => S(i, k))));
+    put('SUPALL', ids.filter((i) => others(i).every((k) => S(k, i))));
+    put('SUBALL', ids.filter((i) => others(i).every((k) => S(i, k))));
+    put('MAXIMAL', ids.filter((i) => !others(i).some((k) => S(i, k))));
+    put('MINIMAL', ids.filter((i) => !others(i).some((k) => S(k, i))));
+    ids.forEach((i) => { rel[i] += others(i).filter((k) => S(i, k) || S(k, i)).length; });
+  }
+  if (classes) classes.forEach((c) => c.forEach((i) => { rel[i] += c.length - 1; }));
+  if (Math.max(...rel) > 0) put('REL', ids.filter((i) => rel[i] === Math.max(...rel)));
+  if (o.size) {
+    const sz = list.map(o.size);
+    put('CMAX', ids.filter((i) => sz[i] === Math.max(...sz)));
+    put('CMIN', ids.filter((i) => sz[i] === Math.min(...sz)));
+  }
+  if (o.sym) {
+    const sy = list.map(o.sym);
+    put('SYM', ids.filter((i) => sy[i]));
+    put('ASYM', ids.filter((i) => !sy[i]));
+  }
+  if (o.dist) {
+    const sums = list.map((a, i) => list.reduce((s, b, k) => (k === i ? s : s + o.dist(a, b)), 0));
+    put('MEDOID', ids.filter((i) => sums[i] === Math.min(...sums)));
+    put('OUTLIER', ids.filter((i) => sums[i] === Math.max(...sums)));
+  }
+  if (o.slots) {
+    const vals = list.map(o.slots);
+    const win = vals[0].map((_, p) => { const cnt = new Map(); vals.forEach((v) => cnt.set(v[p], (cnt.get(v[p]) || 0) + 1)); const m = Math.max(...cnt.values()); return new Set([...cnt].filter(([, c]) => c === m).map(([v]) => v)); });
+    put('MAJ', ids.filter((i) => vals[i].every((v, p) => win[p].has(v))));
+  }
+  // 정답을 가리키는 단서만으로 실패 여부를 판정한다
+  const named = Object.keys(C).filter((k) => C[k].has(ans));
+  let fail = null;
+  for (const a of named) if (C[a].size === 1) { fail = a; break; }
+  for (let i = 0; !fail && i < named.length; i++) for (let k = i + 1; k < named.length; k++) {
+    const x = [...C[named[i]]].filter((v) => C[named[k]].has(v));
+    if (x.length === 1) { fail = `${named[i]}∩${named[k]}`; break; }
+  }
+  // 정답과 함께 가장 적은 선지를 가리키는 단서(또는 두 단서의 교집합)의 크기 : 클수록 단서가 약하다
+  let narrow = n;
+  for (let i = 0; i < named.length; i++) {
+    narrow = Math.min(narrow, C[named[i]].size);
+    for (let k = i + 1; k < named.length; k++) narrow = Math.min(narrow, [...C[named[i]]].filter((v) => C[named[k]].has(v)).length);
+  }
+  // 요구 기준 (a)(b) : (a) 정답이 유일한 최대 회전·반전 동치류에 들고 그 동치류와 다른 단서의 교집합이 정답 하나뿐,
+  // (b) 정답만 다른 선지의 진상위집합(또는 진부분집합)이거나, 정답이 다른 모든 선지의 상위집합(또는 부분집합)
+  let ab = null;
+  const big = C.D4BIG;
+  if (big && big.has(ans)) for (const [k, s] of Object.entries(C)) if (!ab && k !== 'D4BIG' && s.has(ans) && [...big].filter((v) => s.has(v)).length === 1) ab = `D4BIG∩${k}`;
+  for (const k of ['SUP1', 'SUB1']) if (!ab && C[k] && C[k].size === 1 && C[k].has(ans)) ab = k;
+  for (const k of ['SUPALL', 'SUBALL']) if (!ab && C[k] && C[k].has(ans)) ab = k;
+  return { cues: C, classes, fail, ab, narrow };
+}
+const cueText = (C, n = 5) => Object.entries(C).map(([k, s]) => `${k}{${[...s].sort().map((i) => CIRC[i]).join('')}}`).join(' ');
+
+// 숫자 선지(오름차순)의 찍기 단서. 정답 위치(최솟값·최댓값·중앙값)는 회차를 모아 따로 점검한다.
+//  PM1 : 1 작은 값과 1 큰 값이 모두 선지에 있는 값이 정답 하나뿐  MID : 다른 두 선지의 한가운데 값이 정답 하나뿐
+function numberCues(nums, ans) {
+  const has = (v) => nums.includes(v);
+  const pm1 = nums.filter((v) => has(v - 1) && has(v + 1));
+  const mid = nums.filter((v) => nums.some((a) => a < v && has(2 * v - a)));
+  const fail = pm1.length === 1 && pm1[0] === nums[ans] ? 'PM1' : mid.length === 1 && mid[0] === nums[ans] ? 'MID' : null;
+  return { pm1, mid, fail };
 }
 
 // ───────────────────── 1) 투상도 → 입체 ─────────────────────
@@ -594,10 +718,14 @@ function pickV2sDistractors(h, rng, cfg, ref) {
   if (cfg.hard) P1 = [...P1.filter((c) => c.n === ref.N), ...P1.filter((c) => c.n !== ref.N)];
   // 칸별 높이 차이 합(주 기준)은 정답이 최소도 최대도 아니어야 한다. 다른 칸 수(보조 기준)도 최소는 아니어야 하고,
   // 최대 동률은 strictH가 false일 때만 허용한다(한 번 바꾸기는 1~2칸뿐이라 숨은 바탕 구조에서는 최대 동률이 잦다).
+  // cue : 'strict'면 구조 단서(블록 수 극값, 포함 관계, 대칭 등)가 하나도 정답만 가리키지 않아야 하고, 'ab'면 요구 기준 (a)(b)만 본다
+  let cue = 'strict';
   const scoreOk = (set, strictH) => {
     const all = [h, ...set.map((c) => c.v)];
     const st = centerStats(all, 0, hmDist), stH = centerStats(all, 0, hmHam);
-    return notCenter(st) && notCenter(stH) && notOutlier(st) && notOutlier(stH, strictH) && majorityLost(all, 0, hmSlots).length > 0;
+    if (!(notCenter(st) && notCenter(stH) && notOutlier(st) && notOutlier(stH, strictH) && majorityLost(all, 0, hmSlots).length > 0)) return false;
+    const sc = structureCues(all, 0, HM_CUE_OPTS);
+    return cue === 'strict' ? !sc.fail : !sc.ab;
   };
   const isFar = (c) => c.op === 'mirrorX' || c.op === 'mirrorY';
   // (1) 숨은 바탕 B에서 만든 오답 4개 : 정면도·우측면도·평면도가 각각 하나만 어긋난 오답이 모두 있어 세 투상도를 다 봐야 풀린다
@@ -647,7 +775,11 @@ function pickV2sDistractors(h, rng, cfg, ref) {
     }
     return null;
   };
-  return tryBase(true) || tryBase(false) || tryDecoy(true) || tryDecoy(false);
+  const tryAll = () => tryBase(true) || tryBase(false) || tryDecoy(true) || tryDecoy(false);
+  const strictPick = tryAll();
+  if (strictPick) return strictPick;
+  cue = 'ab';
+  return tryAll();
 }
 
 function buildViewsToSolid(ctx, no, cfg, ansPos) {
@@ -673,6 +805,9 @@ function buildViewsToSolid(ctx, no, cfg, ansPos) {
     assert(notOutlier(st) && notOutlier(stH, false), `${ctx.id(no)} 정답이 가장 동떨어진 선지(차이 합 ${st.sums.join(',')})`);
     assert(majorityLost(list, ansPos - 1, hmSlots).length > 0, `${ctx.id(no)} 칸별 다수결 조합이 정답과 같음`);
     ctx.metric(no, '투상도→입체', '칸별 높이 차이', st, `다른 칸 수 기준 ${stH.ans}/${stH.minOther}`);
+    const scH = structureCues(list, ansPos - 1, HM_CUE_OPTS);
+    assert(!scH.ab, `${ctx.id(no)} 구조 단서 ${scH.ab}가 정답을 가리킴 (${cueText(scH.cues)})`);
+    ctx.cues.push({ id: ctx.id(no), kind: 'v2s', ans: ansPos, fail: scH.fail, ab: scH.ab, narrow: scH.narrow, text: cueText(scH.cues) });
     ctx.usedTops.add(bmKey(topBitmapOf(V.top)));
     const choiceSvgs = isoSVGs(list, 24, { arrow: true }, list.map((g, i) => `${CIRC[i]} 블록 입체`));
     const wrongs = meta.map((m, i) => (m ? describeViewDiff(V, m.W, CIRC[i]) + '.' : null)).filter(Boolean);
@@ -776,8 +911,10 @@ function describeTopDiff(g, T) {
  * 투상도 오답 4개 : 개념 오답(좌우·앞뒤 뒤집기, 다른 방향에서 본 모양, 맨 뒤 윤곽만 본 모양) nConcept개
  * + 미끼 D(정답에서 한 곳만 바꾼 것) + D에서 다시 한 곳을 바꾼 파생 오답 + (자리가 남으면) 정답에서 한 곳을 바꾼 독립 오답.
  * 조건 : 정답이 선지 집합의 중심이 아닐 것(격자 칸 차이 합), 칸별 다수결 조합이 정답과 다를 것.
+ * level : 'strict' = 구조 단서(structureCues)가 단독으로도 두 개가 겹쳐서도 정답만 가리키지 않을 것, 'ab' = 요구 기준 (a)(b)만 지킬 것.
+ *         부르는 쪽은 strict로 먼저 찾고, 없을 때만 ab로 다시 찾는다.
  */
-function pickS2vDistractors(rng, ctx) {
+function pickS2vDistractors(rng, ctx, level = 'strict') {
   const { correct, concepts, base, tweaks, toBm, describe, nConcept, mustConcept } = ctx;
   const keyA = bmKey(correct);
   const conc = [];
@@ -803,6 +940,8 @@ function pickS2vDistractors(rng, ctx) {
       if (!notCenter(st) || !notOutlier(st)) continue;
       const W = Math.max(...all.map((b) => b.w)), H = Math.max(...all.map((b) => b.h));
       if (!majorityLost(all, 0, bmSlots(W, H)).length) continue;
+      const sc = structureCues(all, 0, BM_CUE_OPTS);
+      if (level === 'strict' ? sc.fail : sc.ab) continue;
       return set;
     }
   }
@@ -860,10 +999,11 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
         ? `앞에서 보면 열마다 가장 높은 블록까지만 보인다. 열마다 가장 높은 기둥은 ${whereTallest(h, 'front')}이다. 왼쪽 열부터 가장 높은 층수가 ${arr.join('·')}층이므로 정면도는 ${CIRC[ansPos - 1]}이다.`
         : `오른쪽에서 보면 줄마다 가장 높은 블록까지만 보이고, 그림의 왼쪽이 입체의 앞쪽이 된다. 줄마다 가장 높은 기둥은 ${whereTallest(h, 'right')}이다. 앞줄부터 가장 높은 층수가 ${arr.join('·')}층이므로 우측면도는 ${CIRC[ansPos - 1]}이다.`;
     }
-    const picked = pickS2vDistractors(rng, {
+    const pctx = {
       ...pickCtx, correct, concepts, nConcept: cfg.hard ? 1 : 2,
       mustConcept: !!(cfg.hard && view !== 'top' && hiddenMaxLines(h, view).length), // 어려운 정면도·우측면도는 '맨 뒤 윤곽' 오답을 반드시 넣는다
-    });
+    };
+    const picked = pickS2vDistractors(rng, pctx, 'strict') || pickS2vDistractors(rng, pctx, 'ab');
     if (!picked) continue;
     const dist = rng.shuffle(picked);
     const { list, meta } = placeChoices(correct, dist, ansPos);
@@ -875,6 +1015,9 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
     const gw = Math.max(...list.map((b) => b.w)), gh = Math.max(...list.map((b) => b.h));
     assert(majorityLost(list, ansPos - 1, bmSlots(gw, gh)).length > 0, `${ctx.id(no)} 칸별 다수결 조합이 정답과 같음`);
     ctx.metric(no, '입체→투상도', '격자 칸 차이', st);
+    const scB = structureCues(list, ansPos - 1, BM_CUE_OPTS);
+    assert(!scB.ab, `${ctx.id(no)} 구조 단서 ${scB.ab}가 정답을 가리킴 (${cueText(scB.cues)})`);
+    ctx.cues.push({ id: ctx.id(no), kind: 's2v', ans: ansPos, fail: scB.fail, ab: scB.ab, narrow: scB.narrow, text: cueText(scB.cues) });
     ctx.usedTops.add(bmKey(topBitmapOf(V.top)));
     const choiceSvgs = bitmapChoiceSVGs(list, list.map((_, i) => `${CIRC[i]} 격자 투상도`), { bottomAlign: view !== 'top', frontMark: view === 'top' });
     // 평면도는 위아래(앞뒤) 방향을 정하는 약속이 없으면 앞뒤를 뒤집은 선지도 맞다고 볼 수 있다.
@@ -1329,6 +1472,12 @@ function paperForward(plan, steps) {
   });
   return { layers, snaps };
 }
+// 펼치기(역순). errors[i]로 i번째 접기를 잘못 펼친 결과도 만든다.
+//   'skip'      : 그 단계 펼치기를 빠뜨림(겹쳐 있던 쪽의 구멍이 생기지 않음) → 정답의 부분집합
+//   'translate' : 접는 선에 대해 대칭이 아니라 평행이동
+//   'otherDiag' : 대각선 접기를 반대쪽 대각선 기준으로 대칭
+//   { line: k } : 세로·가로 접기를 실제 접는 선이 아닌 다른 선(왼쪽/위에서 k번째 칸 경계)을 기준으로 대칭
+// 잘못 옮긴 구멍이 종이 밖으로 나가면 null(그런 오답은 만들 수 없다).
 function unfold(steps, holes, errors = {}) {
   let P = new Set(holes.map((h) => pk(...h)));
   const counts = [P.size];
@@ -1340,10 +1489,16 @@ function unfold(steps, holes, errors = {}) {
       if (st.O.has(p) && !st.A.has(p)) next.add(p);
       if (st.fA.has(p)) {
         const e = errors[i];
-        if (!e) next.add(pk(...st.f(q)));
-        else if (e === 'translate') next.add(pk(...st.g(q)));
-        else if (e === 'otherDiag') next.add(pk(...st.f2(q)));
-        else if (e === 'skip') { /* 겹친 층의 구멍을 빠뜨림 */ }
+        let img = null;
+        if (!e) img = st.f(q);
+        else if (e === 'translate') img = st.g(q);
+        else if (e === 'otherDiag') img = st.f2(q);
+        else if (e === 'skip') img = null; // 겹친 층의 구멍을 빠뜨림
+        else if (e.line !== undefined) img = st.t === 'v' ? [2 * e.line - 1 - q[0], q[1]] : [q[0], 2 * e.line - 1 - q[1]];
+        if (img) {
+          if (img[0] < 0 || img[0] > 3 || img[1] < 0 || img[1] > 3) return null;
+          next.add(pk(...img));
+        }
       }
     }
     P = next;
@@ -1354,6 +1509,148 @@ function unfold(steps, holes, errors = {}) {
 const holeKey = (set) => [...set].sort().join(';');
 const holeDist = (a, b) => { let n = 0; for (const k of a) if (!b.has(k)) n++; for (const k of b) if (!a.has(k)) n++; return n; }; // 구멍 위치가 다른 칸 수
 const paperSlots = (set) => { const out = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) out.push(set.has(pk(c, r)) ? '1' : '0'); return out; };
+// 펼친 종이(4×4)의 회전·반전 7가지(항등 제외). (c, r) : c = 왼쪽→오른쪽 열, r = 위→아래 줄. name은 해설에 쓴다.
+const PAPER_D4 = [
+  { id: 'rot90', name: '시계 방향으로 90° 돌린', fn: ([c, r]) => [3 - r, c] },
+  { id: 'rot180', name: '180° 돌린', fn: ([c, r]) => [3 - c, 3 - r] },
+  { id: 'rot270', name: '시계 반대 방향으로 90° 돌린', fn: ([c, r]) => [r, 3 - c] },
+  { id: 'mirLR', name: '좌우로 뒤집은', fn: ([c, r]) => [3 - c, r] },
+  { id: 'mirUD', name: '위아래로 뒤집은', fn: ([c, r]) => [c, 3 - r] },
+  { id: 'tr', name: '왼쪽 위–오른쪽 아래 대각선을 축으로 뒤집은', fn: ([c, r]) => [r, c] },
+  { id: 'anti', name: '오른쪽 위–왼쪽 아래 대각선을 축으로 뒤집은', fn: ([c, r]) => [3 - r, 3 - c] },
+];
+const holeTf = (set, fn) => new Set([...set].map((p) => pk(...fn(pu(p)))));
+const holeCanon = (set) => [holeKey(set), ...PAPER_D4.map((t) => holeKey(holeTf(set, t.fn)))].sort()[0];
+const holeSym = (set) => PAPER_D4.some((t) => holeKey(holeTf(set, t.fn)) === holeKey(set));
+const holeSub = (a, b) => a.size < b.size && [...a].every((k) => b.has(k)); // a ⊊ b
+const PAPER_CUE_OPTS = { canon: holeCanon, sub: holeSub, size: (s) => s.size, sym: holeSym, dist: holeDist, slots: paperSlots };
+/**
+ * 종이 접기 오답 후보. 오류마다 { v(구멍 집합), kind, steps(잘못 펼친 단계), why(해설 문구, '모양' 앞까지) }.
+ *  skip      : 한 단계를 펼치지 않고 빠뜨림 → 정답의 부분집합. 같은 단계를 잘못 펼친 오답의 부분집합이기도 하다.
+ *  line      : 세로·가로 접기를 실제 접는 선이 아닌 다른 선을 기준으로 대칭
+ *  translate : 대칭이 아니라 평행이동      otherDiag : 대각선 접기를 반대쪽 대각선 기준으로 대칭
+ *  double    : 두 단계를 잘못 펼침(잘못 펼치기 + 다른 단계 빠뜨림 포함)
+ *  RA        : 정답을 돌리거나 뒤집은 모양(보는 방향 착각)
+ * 오답끼리의 회전·반전 짝(RW)은 고를 때 만든다.
+ */
+function paperCandidates(steps, holes, right) {
+  const nSteps = steps.length;
+  // 잘못 잡은 접는 선은 실제로 헷갈리기 쉬운 것만 쓴다 : 종이 한가운데 선(접는 선이 가운데가 아닐 때), 같은 방향으로 접은
+  // 다른 단계의 접는 선. 종이 밖으로 구멍이 나가는 선은 unfold가 걸러 낸다.
+  const wrongLines = (i) => {
+    const st = steps[i], out = new Map();
+    if (st.k !== 2) out.set(2, '종이 한가운데 선');
+    steps.forEach((o, m) => { if (m !== i && o.t === st.t && o.k !== st.k && !out.has(o.k)) out.set(o.k, `${m + 1}번째 접기의 접는 선`); });
+    return [...out];
+  };
+  const errs = (i) => {
+    const st = steps[i];
+    if (st.t === 'd') return [{ e: 'otherDiag', kind: 'otherDiag', why: `${i + 1}번째 접기를 실제 접는 선이 아닌 반대쪽 대각선을 기준으로 대칭시켜 펼친` }];
+    const out = [{ e: 'translate', kind: 'translate', why: `${i + 1}번째 접기를 접는 선에 대해 대칭이 아니라 그대로 평행이동해서 펼친` }];
+    for (const [k, desc] of wrongLines(i)) out.push({ e: { line: k }, kind: 'line', why: `${i + 1}번째 접기를 실제 접는 선이 아니라 ${desc}을 기준으로 대칭시켜 펼친` });
+    return out;
+  };
+  const skipWhy = (i) => `${i + 1}번째 접기를 펼치는 단계를 빠뜨려, 그때 겹쳐 있던 쪽의 구멍이 생기지 않은`;
+  // 한 단계 오류를 먼저, 두 단계 오류를 나중에 넣는다(같은 결과가 나오면 더 단순한 설명을 남긴다).
+  const raw = [];
+  for (let i = 0; i < nSteps; i++) {
+    raw.push({ errors: { [i]: 'skip' }, kind: 'skip', steps: [i], why: skipWhy(i) });
+    for (const e of errs(i)) raw.push({ errors: { [i]: e.e }, kind: e.kind, steps: [i], why: e.why });
+  }
+  for (let i = 0; i < nSteps; i++) for (let k = i + 1; k < nSteps; k++) {
+    raw.push({ errors: { [i]: 'skip', [k]: 'skip' }, kind: 'double', steps: [i, k], why: `${i + 1}번째와 ${k + 1}번째 접기를 펼치는 단계를 모두 빠뜨린` });
+    for (const e of errs(i)) {
+      raw.push({ errors: { [i]: e.e, [k]: 'skip' }, kind: 'double', steps: [i, k], why: `${e.why} 데다 ${k + 1}번째 접기를 펼치는 단계까지 빠뜨린` });
+      for (const e2 of errs(k)) raw.push({ errors: { [i]: e.e, [k]: e2.e }, kind: 'double', steps: [i, k], why: `${e.why} 데다 ${e2.why.replace(/^\d+번째 접기를/, `${k + 1}번째 접기도`)}` });
+    }
+    for (const e2 of errs(k)) raw.push({ errors: { [i]: 'skip', [k]: e2.e }, kind: 'double', steps: [i, k], why: `${i + 1}번째 접기를 펼치는 단계를 빠뜨린 데다 ${e2.why.replace(/^\d+번째 접기를/, `${k + 1}번째 접기도`)}` });
+  }
+  const keyA = holeKey(right);
+  const seen = new Set([keyA]);
+  const out = [];
+  for (const c of raw) {
+    const u = unfold(steps, holes, c.errors);
+    if (!u || !u.set.size) continue;
+    const k = holeKey(u.set);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ v: u.set, key: k, kind: c.kind, steps: c.steps, why: c.why });
+  }
+  for (const t of PAPER_D4) {
+    const v = holeTf(right, t.fn), k = holeKey(v);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ v, key: k, kind: 'RA', tf: t, why: `정답을 ${t.name}` });
+  }
+  return out;
+}
+/**
+ * 회차마다 다른 오답 구성(mix)으로 오답 4개를 고른다. mix 칸 하나가 오답 하나이다.
+ *  { t: 'RA' }                     정답을 돌리거나 뒤집은 모양
+ *  { t: 'err', kinds: [...] }      한 단계를 잘못 펼친 모양(line·translate·otherDiag)
+ *  { t: 'skip' }                   한 단계를 빠뜨린 모양      { t: 'double' }  두 단계를 잘못 펼친 모양
+ *  { t: 'tf', of: tag, same: tag } tag 칸 오답을 돌리거나 뒤집은 모양(오답끼리의 회전·반전 짝). same이 있으면 그 칸(RA)과 같은 변환
+ * 모든 조합을 만든 뒤 조건(중심·최원점·다수결 + 구조 단서)을 통과한 것 가운데서 고른다.
+ */
+function pickPaperDistractors(rng, right, cands, mixes, total) {
+  for (const mix of mixes) {
+    const r = pickPaperMix(rng, right, cands, mix, total);
+    if (r) return r;
+  }
+  return null;
+}
+function pickPaperMix(rng, right, cands, mix, total) {
+  // 구멍 수 : 한 단계 오류는 정답 ±1, 두 단계 오류는 ±2 안(너무 적거나 많으면 그럴듯하지 않다). 빠뜨림은 정답의 부분집합이라 적어도 된다.
+  const okCount = (c) => c.kind === 'skip' || Math.abs(c.v.size - total) <= (c.kind === 'double' ? 2 : 1);
+  const pool = cands.filter(okCount);
+  const byType = (slot) => pool.filter((c) => (slot.t === 'RA' ? c.kind === 'RA' : slot.t === 'err' ? slot.kinds.includes(c.kind) : slot.t === 'skip' ? c.kind === 'skip' : slot.t === 'double' ? c.kind === 'double' : false));
+  const keyA = holeKey(right);
+  const combos = [];
+  const rec = (k, chosen, tags) => {
+    if (k === mix.length) { combos.push(chosen.slice()); return; }
+    const slot = mix[k];
+    let opts;
+    if (slot.t === 'tf') {
+      const src = tags[slot.of];
+      const tfs = slot.same ? [tags[slot.same].tf] : PAPER_D4;
+      opts = tfs.map((t) => { const v = holeTf(src.v, t.fn); return { v, key: holeKey(v), kind: 'RW', tf: t, src, why: null }; });
+    } else opts = byType(slot);
+    for (const c of opts) {
+      if (c.key === keyA || chosen.some((d) => d.key === c.key)) continue;
+      chosen.push(c);
+      rec(k + 1, chosen, slot.tag ? { ...tags, [slot.tag]: c } : tags);
+      chosen.pop();
+    }
+  };
+  rec(0, [], {});
+  const good = [];
+  const why = new Map(), bump = (k) => why.set(k, (why.get(k) || 0) + 1);
+  for (const set of combos) {
+    const all = [right, ...set.map((c) => c.v)];
+    if (!set.some((c) => ['line', 'translate', 'otherDiag'].includes(c.kind))) { bump('no-single'); continue; } // 한 단계를 잘못 펼친 오답은 꼭 넣는다
+    const st = centerStats(all, 0, holeDist);
+    if (!notCenter(st) || !notOutlier(st) || !majorityLost(all, 0, paperSlots).length) { bump(!notCenter(st) ? 'medoid' : !notOutlier(st) ? 'outlier' : 'majority'); continue; }
+    const sc = structureCues(all, 0, PAPER_CUE_OPTS);
+    if (sc.fail) { bump(sc.fail); continue; }
+    good.push({ set, narrow: sc.narrow });
+  }
+  // SPATIAL_PAPER_DEBUG=1 : 시도마다 후보 수와 탈락 이유를 stderr에 적는다(오답 구성 조정용)
+  if (process.env.SPATIAL_PAPER_DEBUG) console.error(`  [paper] 후보 ${pool.length}, 조합 ${combos.length}, 통과 ${good.length} | ${[...why].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(' ')}`);
+  if (!good.length) return null;
+  // 단서가 가장 약한(정답과 함께 가리키는 선지가 가장 많은) 조합들 가운데서 고른다
+  const best = Math.max(...good.map((g) => g.narrow));
+  return rng.pick(good.filter((g) => g.narrow === best)).set;
+}
+// 선지 구성 서명 : 회전·반전 동치류 크기(정답 묶음은 A), 포함 관계, 오답 종류. 회차끼리 같으면 안 된다.
+function paperPattern(list, ansIdx, meta) {
+  const sc = structureCues(list, ansIdx, PAPER_CUE_OPTS);
+  const cls = sc.classes.map((c) => (c.includes(ansIdx) ? 'A' : '') + c.length).sort().join('·');
+  const lab = (i) => (i === ansIdx ? 'A' : meta[i].kind);
+  const inc = [];
+  list.forEach((a, i) => list.forEach((b, k) => { if (holeSub(a, b)) inc.push(`${lab(i)}⊂${lab(k)}`); }));
+  const kinds = meta.filter(Boolean).map((m) => m.kind).sort().join('+');
+  return { cls, inc: inc.sort().join(' ') || '없음', kinds, sig: `${cls} | ${inc.sort().join(' ')} | ${kinds}` };
+}
 
 function paperStateBody(cells, ox, oy, s) {
   let fills = '', segs = new Map();
@@ -1439,26 +1736,42 @@ function foldLineAndArrow(st, ox, oy, s) {
   out += arrowHead(B2, C, 8);
   return out;
 }
-function paperFigureSVG(steps, snaps, holes) {
-  const s = 19, pad = 12, gapArrow = 34, panel = 4 * s;
+// 접기 순서 그림. cols = 한 줄에 놓는 장면 수. 장면이 한 줄에 다 들어가지 않으면(cols < 장면 수) 줄 끝에 '→'를 하나 더 두고
+// 다음 줄을 '→'로 시작해 순서가 이어짐을 보인다(지그재그 없이 왼쪽→오른쪽, 위→아래로 읽는다).
+function paperFigureSVG(steps, snaps, holes, { cols = snaps.length } = {}) {
+  const n = snaps.length;
+  const rows = Math.ceil(n / cols), wrap = rows > 1;
+  const s = 19, pad = 12, gapArrow = wrap ? 28 : 34, panel = 4 * s;
   const topM = 1.5 * s, rightM = 1.5 * s; // 접는 화살표가 들어갈 여백
   const pw = panel + rightM;
-  const n = snaps.length;
+  const lead = wrap ? gapArrow : 0;               // 둘째 줄부터 맨 앞에 '→'를 그릴 자리
+  const rowH = topM + panel + 0.6 * s + 22, rowGap = wrap ? 8 : 0;
+  const flow = (x0, ay) => {
+    const ax = x0 + gapArrow * 0.12, bx = x0 + gapArrow * 0.82;
+    return `<line x1="${fmt(ax)}" y1="${fmt(ay)}" x2="${fmt(bx - 5)}" y2="${fmt(ay)}" stroke="#777" stroke-width="2"/>` + arrowHead([bx, ay], [ax, ay], 8, '#777');
+  };
   let body = '';
   for (let i = 0; i < n; i++) {
-    const ox = pad + i * (pw + gapArrow), oy = pad + topM;
+    const col = i % cols, row = Math.floor(i / cols);
+    const ox = pad + lead + col * (pw + gapArrow), oy = pad + row * (rowH + rowGap) + topM;
     body += paperStateBody(snaps[i], ox, oy, s);
     if (i < steps.length) body += foldLineAndArrow(steps[i], ox, oy, s);
     else for (const [c, r] of holes) body += `<circle cx="${fmt(ox + (c + 0.5) * s)}" cy="${fmt(oy + (r + 0.5) * s)}" r="${fmt(s * 0.24)}" fill="${INK}"/>`;
-    if (i < n - 1) {
-      const ax = ox + pw + gapArrow * 0.12, bx = ox + pw + gapArrow * 0.82, ay = oy + panel / 2;
-      body += `<line x1="${fmt(ax)}" y1="${fmt(ay)}" x2="${fmt(bx - 5)}" y2="${fmt(ay)}" stroke="#777" stroke-width="2"/>` + arrowHead([bx, ay], [ax, ay], 8, '#777');
-    }
+    if (i < n - 1) body += flow(ox + pw, oy + panel / 2);                       // 다음 장면으로(줄 끝이면 줄 밖으로)
+    if (wrap && col === 0 && row > 0) body += flow(ox - gapArrow, oy + panel / 2); // 앞 줄에서 이어짐
     const label = i < steps.length ? `${i + 1}번째 접기` : '구멍 뚫기';
     body += svgText(ox + panel / 2, oy + panel + 0.6 * s + 14, label, { size: 12 });
   }
-  const W = 2 * pad + n * pw + (n - 1) * gapArrow - rightM * 0.6, H = pad + topM + panel + 0.6 * s + 22 + pad - 4;
+  const perRow = Math.min(n, cols);
+  const W = 2 * pad + lead + perRow * pw + (perRow - 1) * gapArrow + (wrap ? gapArrow : -rightM * 0.6);
+  const H = pad + rows * rowH + (rows - 1) * rowGap + pad - 4;
   return svgDoc(W, H, body, '종이 접기 순서와 구멍 위치');
+}
+// 문항 그림 : 넓은 화면용 한 줄 배치(svg)와, 장면이 4개 이상이면 좁은 화면(휴대폰)용 두 줄 배치(svgNarrow)
+function paperFigure(steps, snaps, holes) {
+  const fig = { svg: paperFigureSVG(steps, snaps, holes), caption: '점선은 접는 선, 화살표는 접는 방향이다. 회색이 진할수록 여러 겹이다.' };
+  if (snaps.length >= 4) fig.svgNarrow = paperFigureSVG(steps, snaps, holes, { cols: 2 });
+  return fig;
 }
 function paperChoiceSVG(holeSet, label) {
   const s = 24, pad = 10;
@@ -1485,56 +1798,47 @@ function buildPaper(ctx, no, cfg, ansPos) {
     assert(holeKey(fwdSet) === holeKey(right.set), `${ctx.id(no)} 종이접기 순방향/역방향 불일치`);
     const total = right.set.size;
     if (total < cfg.minHoles || total > cfg.maxHoles) continue;
-    const cands = [];
     const nSteps = steps.length;
-    const errName = { translate: '접는 선에 대해 대칭이 아니라 그대로 평행이동해서 펼친', skip: '펼칠 때 겹쳐 있던 쪽의 구멍을 빠뜨린', otherDiag: '반대쪽 대각선을 기준으로 펼친' };
-    for (let i = 0; i < nSteps; i++) {
-      const kinds = steps[i].t === 'd' ? ['otherDiag', 'skip'] : ['translate', 'skip'];
-      for (const e of kinds) cands.push({ v: unfold(steps, holes, { [i]: e }).set, why: `${i + 1}번째 접기를 ${errName[e]} 모양`, kind: e });
-      for (let k = i + 1; k < nSteps; k++) {
-        const kinds2 = steps[k].t === 'd' ? ['otherDiag'] : ['translate'];
-        for (const e of kinds.filter((x) => x !== 'skip')) for (const e2 of kinds2) {
-          cands.push({ v: unfold(steps, holes, { [i]: e, [k]: e2 }).set, why: `${i + 1}번째와 ${k + 1}번째 접기를 모두 잘못 펼친 모양(대칭이 아닌 평행이동 등)`, kind: 'double' });
-        }
-      }
-    }
-    const glob = (fn) => new Set([...right.set].map((p) => pk(...fn(pu(p)))));
-    cands.push({ v: glob(([c, r]) => [3 - c, r]), why: '정답을 좌우로 뒤집은 모양', kind: 'mirror' });
-    cands.push({ v: glob(([c, r]) => [c, 3 - r]), why: '정답을 위아래로 뒤집은 모양', kind: 'mirror' });
-    cands.push({ v: glob(([c, r]) => [3 - r, c]), why: '정답을 90° 돌린 모양', kind: 'rot' });
-    const keys = new Set([holeKey(right.set)]);
-    const pool = [];
-    const order = [...rng.shuffle(cands.filter((c) => c.kind === 'translate' || c.kind === 'otherDiag')),
-      ...rng.shuffle(cands.filter((c) => c.kind === 'double')),
-      ...rng.shuffle(cands.filter((c) => c.kind === 'skip')).slice(0, 1),
-      ...rng.shuffle(cands.filter((c) => c.kind === 'mirror' || c.kind === 'rot'))];
-    for (const c of order) {
-      if (c.v.size === 0 || keys.has(holeKey(c.v))) continue;
-      if (c.kind !== 'skip' && Math.abs(c.v.size - total) > 1) continue;
-      keys.add(holeKey(c.v)); pool.push(c);
-    }
-    // 오답 4개 : 한 번의 접기를 잘못 펼친 오답을 적어도 하나 넣고, 정답이 선지 집합의 중심(구멍 위치 차이 합 최소)이 아니며
-    // 칸별 다수결 조합이 정답과 다르게 고른다. 앞에서부터 고른 조합이 조건을 채우면 그대로 쓰고, 아니면 무작위로 다시 고른다.
-    const okPick = (ps) => ps.length === 4 && ps.some((c) => c.kind === 'translate' || c.kind === 'otherDiag')
-      && notCenter(centerStats([right.set, ...ps.map((c) => c.v)], 0, holeDist)) && notOutlier(centerStats([right.set, ...ps.map((c) => c.v)], 0, holeDist))
-      && majorityLost([right.set, ...ps.map((c) => c.v)], 0, paperSlots).length > 0;
-    let pickedList = pool.slice(0, 4);
-    for (let t = 0; t < 2000 && !okPick(pickedList); t++) pickedList = sampleK(rng, pool, 4) || [];
-    if (!okPick(pickedList)) continue;
-    const { list, meta } = placeChoices(right.set, rng.shuffle(pickedList), ansPos);
+    // 오답 4개 : 회차마다 정한 구성(cfg.mix)대로 고른다. 정답이 선지 집합의 중심(구멍 위치 차이 합 최소)도, 가장 동떨어진 선지도
+    // 아니고, 칸별 다수결 조합이 정답과 다르며, 구조 단서(회전·반전 묶음, 포함 관계, 구멍 수, 대칭)가 정답을 가리키지 않아야 한다.
+    const picked = pickPaperDistractors(rng, right.set, paperCandidates(steps, holes, right.set), cfg.mixes, total);
+    if (!picked) continue;
+    const { list, meta } = placeChoices(right.set, rng.shuffle(picked), ansPos);
+    const ai = ansPos - 1;
     assert(new Set(list.map(holeKey)).size === 5, `${ctx.id(no)} 종이접기 선지 중복`);
     assert(list.filter((x) => holeKey(x) === holeKey(right.set)).length === 1, `${ctx.id(no)} 종이접기 정답 유일성`);
-    const st = centerStats(list, ansPos - 1, holeDist);
+    // 오답이 정말 틀렸는지 다시 확인 : 정답과 구멍 배치가 같은 오답은 없다(위에서 확인). 오답의 회전·반전 짝은 원래 오답과 같은 변환으로 겹친다.
+    meta.forEach((m, i) => { if (m && m.kind === 'RW') assert(holeKey(holeTf(m.src.v, m.tf.fn)) === holeKey(list[i]) && list.some((x) => holeKey(x) === m.src.key), `${ctx.id(no)} 오답 짝`); });
+    const st = centerStats(list, ai, holeDist);
     assert(notCenter(st) && notOutlier(st), `${ctx.id(no)} 정답이 선지 집합의 중심이거나 혼자 동떨어짐(차이 합 ${st.sums.join(',')})`);
-    assert(majorityLost(list, ansPos - 1, paperSlots).length > 0, `${ctx.id(no)} 칸별 다수결 조합이 정답과 같음`);
+    assert(majorityLost(list, ai, paperSlots).length > 0, `${ctx.id(no)} 칸별 다수결 조합이 정답과 같음`);
+    // 찍기 단서 (a)(b) : 회전·반전 동치류, 부분/상위집합, 구멍 수, 대칭 단서가 (단독으로든 둘이 겹쳐서든) 정답 하나만 가리키면 안 된다
+    const sc = structureCues(list, ai, PAPER_CUE_OPTS);
+    assert(!sc.fail, `${ctx.id(no)} 구조 단서 ${sc.fail}가 정답을 가리킴 (${cueText(sc.cues)})`);
+    const big = sc.cues.D4BIG;
+    if (big && big.has(ai)) for (const [k, s] of Object.entries(sc.cues)) {
+      if (k !== 'D4BIG' && s.has(ai)) assert([...big].filter((v) => s.has(v)).length > 1, `${ctx.id(no)} 정답이 속한 가장 큰 회전·반전 묶음 ∩ ${k}가 정답 하나`);
+    }
+    for (const k of ['SUP1', 'SUB1', 'SUPALL', 'SUBALL']) assert(!(sc.cues[k] && sc.cues[k].size === 1 && sc.cues[k].has(ai)), `${ctx.id(no)} 정답만 ${k}`);
+    // 오답끼리 회전·반전 짝을 이루는 묶음(정답이 없는 묶음)이 있어야 한다
+    assert(sc.classes.some((c) => c.length >= 2 && !c.includes(ai)), `${ctx.id(no)} 오답끼리의 회전·반전 짝 없음`);
+    const pat = paperPattern(list, ai, meta);
     ctx.metric(no, '종이 접기', '구멍 위치 차이', st);
+    ctx.cues.push({ id: ctx.id(no), kind: 'paper', ans: ansPos, fail: sc.fail, ab: sc.ab, narrow: sc.narrow, text: cueText(sc.cues), pattern: pat });
     const seq = right.counts.join('개 → ') + '개';
-    const wrongs = meta.map((m, i) => (m ? `${j(CIRC[i], '은/는')} ${m.why}이다.` : null)).filter(Boolean);
-    ctx.log(no, `접기 ${nSteps}회, 구멍 ${holes.length}개 → 펼치면 ${total}개, 순방향=역방향 일치, 오답 [${pickedList.map((c) => c.kind).join(',')}], 차이 합 ${st.sums.join('/')}`);
+    const wrongs = meta.map((m, i) => {
+      if (!m) return null;
+      if (m.kind === 'RW') {
+        const s = list.findIndex((x) => holeKey(x) === m.src.key);
+        return `${j(CIRC[i], '은/는')} ${j(CIRC[s], '을/를')} ${m.tf.name} 모양이다(${CIRC[s]}의 잘못에 더해 종이를 보는 방향까지 바뀌었다).`;
+      }
+      return `${j(CIRC[i], '은/는')} ${m.why} 모양이다.`;
+    }).filter(Boolean);
+    ctx.log(no, `접기 ${nSteps}회, 구멍 ${holes.length}개 → 펼치면 ${total}개, 순방향=역방향 일치, 오답 [${meta.map((m, i) => (m ? `${CIRC[i]}${m.kind}${m.tf ? '(' + m.tf.id + ')' : ''}` : null)).filter(Boolean).join(' ')}], 동치류 ${pat.cls}, 포함 ${pat.inc}, 차이 합 ${st.sums.join('/')}`);
     return {
       subtype: '종이 접기',
       stem: '다음과 같이 종이를 접은 뒤 구멍을 뚫고 다시 펼쳤을 때의 모양으로 옳은 것은?',
-      figure: { svg: paperFigureSVG(steps, fw.snaps, holes), caption: '점선은 접는 선, 화살표는 접는 방향이다. 회색이 진할수록 여러 겹이다.' },
+      figure: paperFigure(steps, fw.snaps, holes.map((h) => h)),
       choiceSvgs: list.map((x, i) => paperChoiceSVG(x, `${CIRC[i]} 펼친 종이`)),
       answer: ansPos,
       explanation: `정답 ${CIRC[ansPos - 1]}: 접은 순서의 역순으로 펼치면서, 접힌 부분에 뚫린 구멍을 그때의 접는 선에 대해 선대칭으로 옮긴다. 구멍 수는 ${seq}가 된다(겹친 장수만큼 늘어남).<br>` + wrongs.join('<br>'),
@@ -1580,24 +1884,31 @@ function buildCount(ctx, no, cfg, ansPos) {
     const H0 = hz.reduce((a, b) => a + b, 0);
     const hzTxt = hz.map((n, z) => (n ? `${z + 1}층 ${n}개` : null)).filter(Boolean).join(', ');
     const corner = h[0][X - 1];
-    const mis = []; // { v, why }
+    // 가려진 곳을 꽉 찼다고 본 값 : 칸마다 정면에서 본 높이와 오른쪽에서 본 높이 중 낮은 쪽까지 쌓여 있다고 보면
+    // (블록이 있는 칸만) 세 투상도와 어긋나지 않는 가장 많은 개수가 된다. 윗면 높이를 확인하지 않고 겉모습으로 어림한 과다 계산이다.
+    const Vw = hmViews(h);
+    const fill = h.reduce((sum, r, y) => sum + r.reduce((t, v, x) => t + (v ? Math.min(Vw.front[x], Vw.right[y]) - v : 0), 0), 0);
+    // err : 'under'(있는 블록을 덜 셈) | 'over'(있는 블록을 더 셈) | 'other'. generic : 구체적인 근거 없이 ±k만 다른 값(되도록 쓰지 않는다)
+    const mis = []; // { v, why, err, generic }
     if (cfg.mode === 'cuboid') {
-      mis.push({ v: N, why: `더 필요한 블록 수가 아니라 지금 있는 블록 수(${N}개)를 답한 값` });
-      if (H0) mis.push({ v: value + H0, why: `지금 있는 블록을 셀 때 면이 하나도 보이지 않는 블록 ${H0}개(${hzTxt})를 빠뜨려, 그만큼 더 필요하다고 본 값` });
-      hz.forEach((n, z) => { if (n && n !== H0) mis.push({ v: value + n, why: `지금 있는 블록을 셀 때 ${z + 1}층에서 다른 블록에 가려 그림에 보이지 않는 블록 ${n}개를 빠뜨려, 그만큼 더 필요하다고 본 값` }); });
-      if (corner) mis.push({ v: value - corner, why: `지금 있는 블록을 셀 때 정면과 우측면이 함께 보이는 앞쪽 오른쪽 모서리 기둥의 블록 ${corner}개를 두 번 세어, 그만큼 덜 필요하다고 본 값` });
+      mis.push({ v: N, why: `더 필요한 블록 수가 아니라 지금 있는 블록 수(${N}개)를 답한 값`, err: 'other' });
+      if (H0) mis.push({ v: value + H0, why: `지금 있는 블록을 셀 때 면이 하나도 보이지 않는 블록 ${H0}개(${hzTxt})를 빠뜨려, 그만큼 더 필요하다고 본 값`, err: 'under' });
+      hz.forEach((n, z) => { if (n && n !== H0) mis.push({ v: value + n, why: `지금 있는 블록을 셀 때 ${z + 1}층에서 다른 블록에 가려 그림에 보이지 않는 블록 ${n}개를 빠뜨려, 그만큼 더 필요하다고 본 값`, err: 'under' }); });
+      if (corner) mis.push({ v: value - corner, why: `지금 있는 블록을 셀 때 정면과 우측면이 함께 보이는 앞쪽 오른쪽 모서리 기둥의 블록 ${corner}개를 두 번 세어, 그만큼 덜 필요하다고 본 값`, err: 'over' });
+      if (fill) mis.push({ v: value - fill, why: `지금 있는 블록을 셀 때 칸마다 윗면을 확인하지 않고 앞과 오른쪽에서 보이는 높이(둘 중 낮은 쪽)까지 꽉 차 있다고 보아 ${fill}개를 더 세어, 그만큼 덜 필요하다고 본 값`, err: 'over' });
       for (const k of [1, 2, 3]) {
-        mis.push({ v: value + k, why: `지금 있는 블록을 셀 때 가려진 블록 ${k}개를 빠뜨려, 그만큼 더 필요하다고 본 값` });
-        mis.push({ v: value - k, why: `지금 있는 블록을 셀 때 블록 ${k}개를 두 번 세어, 그만큼 덜 필요하다고 본 값` });
+        mis.push({ v: value + k, why: `지금 있는 블록을 셀 때 가려진 블록 ${k}개를 빠뜨려, 그만큼 더 필요하다고 본 값`, err: 'under', generic: true });
+        mis.push({ v: value - k, why: `지금 있는 블록을 셀 때 블록 ${k}개를 두 번 세어, 그만큼 덜 필요하다고 본 값`, err: 'over', generic: true });
       }
     } else {
-      if (H0) mis.push({ v: N - H0, why: `그림에서 면이 하나도 보이지 않는 블록 ${H0}개(${hzTxt})를 모두 빠뜨리고 보이는 블록만 센 값` });
-      hz.forEach((n, z) => { if (n && n !== H0) mis.push({ v: N - n, why: `${z + 1}층에서 다른 블록에 가려 그림에 보이지 않는 블록 ${n}개를 빠뜨린 값` }); });
-      if (holes) mis.push({ v: N + holes, why: `바닥판이 드러난 빈칸 ${holes}개에도 블록이 1개씩 있다고 본 값` });
-      if (corner) mis.push({ v: N + corner, why: `정면과 우측면이 함께 보이는 앞쪽 오른쪽 모서리 기둥의 블록 ${corner}개를 앞줄과 오른쪽 줄에서 두 번 센 값` });
+      if (H0) mis.push({ v: N - H0, why: `그림에서 면이 하나도 보이지 않는 블록 ${H0}개(${hzTxt})를 모두 빠뜨리고 보이는 블록만 센 값`, err: 'under' });
+      hz.forEach((n, z) => { if (n && n !== H0) mis.push({ v: N - n, why: `${z + 1}층에서 다른 블록에 가려 그림에 보이지 않는 블록 ${n}개를 빠뜨린 값`, err: 'under' }); });
+      if (holes) mis.push({ v: N + holes, why: `바닥판이 드러난 빈칸 ${holes}개에도 블록이 1개씩 있다고 본 값`, err: 'over' });
+      if (fill) mis.push({ v: N + fill, why: `칸마다 윗면을 확인하지 않고 앞과 오른쪽에서 보이는 높이(둘 중 낮은 쪽)까지 꽉 차 있다고 보아 ${fill}개를 더 센 값`, err: 'over' });
+      if (corner) mis.push({ v: N + corner, why: `정면과 우측면이 함께 보이는 앞쪽 오른쪽 모서리 기둥의 블록 ${corner}개를 앞줄과 오른쪽 줄에서 두 번 센 값`, err: 'over' });
       for (const k of [1, 2, 3]) {
-        mis.push({ v: N - k, why: `가려진 블록 ${k}개를 빠뜨린 값` });
-        mis.push({ v: N + k, why: `블록 ${k}개를 두 번 센 값` });
+        mis.push({ v: N - k, why: `가려진 블록 ${k}개를 빠뜨린 값`, err: 'under', generic: true });
+        mis.push({ v: N + k, why: `블록 ${k}개를 두 번 센 값`, err: 'over', generic: true });
       }
     }
     const below = [], above = [];
@@ -1609,16 +1920,33 @@ function buildCount(ctx, no, cfg, ansPos) {
     }
     const nb = ansPos - 1, na = 5 - ansPos;
     if (below.length < nb || above.length < na) continue;
-    const picked = [...below.slice(0, nb), { v: value, why: null }, ...above.slice(0, na)].sort((a, b) => a.v - b.v);
+    // 오답 고르기 : 과다 계산과 과소 계산 오답이 모두 있고, 숫자 단서(±1이 모두 있는 값, 두 선지의 한가운데 값)가 정답을
+    // 가리키지 않는 조합 가운데, 근거가 구체적인 값(일반적인 ±k가 아닌 값)을 가장 많이, 목록 앞쪽 것을 먼저 쓴다.
+    const subsets = (arr, k, from = 0) => (k === 0 ? [[]] : arr.slice(from).flatMap((x, i) => subsets(arr, k - 1, from + i + 1).map((r) => [x, ...r])));
+    let best = null;
+    for (const bs of subsets(below, nb)) for (const as of subsets(above, na)) {
+      const ds = [...bs, ...as];
+      if (!ds.some((m) => m.err === 'over') || !ds.some((m) => m.err === 'under')) continue;
+      const nums = [...ds.map((m) => m.v), value].sort((x, y) => x - y);
+      if (numberCues(nums, ansPos - 1).fail) continue;
+      const score = ds.filter((m) => m.generic).length * 100 + ds.reduce((t, m) => t + mis.indexOf(m), 0);
+      if (!best || score < best.score) best = { ds, score };
+    }
+    if (!best) continue;
+    const picked = [...best.ds, { v: value, why: null }].sort((a, b) => a.v - b.v);
     const nums = picked.map((m) => m.v);
     assert(nums[ansPos - 1] === value && nums.every((v) => v > 0), `${ctx.id(no)} 숫자 선지`);
     assert(nums.every((v, k) => k === 0 || v > nums[k - 1]), `${ctx.id(no)} 숫자 선지 오름차순`);
+    // 찍기 단서 (c) : 과다·과소 계산 오답이 모두 있고, 정답이 '±1이 모두 선지에 있는 유일한 값'이나 '두 선지의 한가운데에 있는 유일한 값'이 아니다
+    assert(picked.some((m) => m.err === 'over') && picked.some((m) => m.err === 'under'), `${ctx.id(no)} 과다·과소 계산 오답이 모두 있어야 함`);
+    const nc = numberCues(nums, ansPos - 1);
+    assert(!nc.fail, `${ctx.id(no)} 숫자 단서 ${nc.fail}가 정답을 가리킴 (선지 ${nums.join('·')})`);
     const misTxt = picked.map((m, i) => (m.why ? `${CIRC[i]} ${m.v}개는 ${m.why}이다.` : null)).filter(Boolean).join('<br>');
     const lv = levels.map((n, i) => `${i + 1}층 ${n}개`).join(' + ');
     const st = centerStats(nums, ansPos - 1, (a, b) => Math.abs(a - b));
     ctx.metric(no, '블록 개수', '값 차이(참고)', st, `선지 ${nums.join('·')}, 정답 ${CIRC[ansPos - 1]}`);
     ctx.log(no, `${cfg.mode === 'cuboid' ? '직육면체 완성' : '개수 세기'}: ${X}×${Y}×${maxH}, 블록 ${N}개(빈칸 ${holes}개, 바닥 모두 보임, 완전히 가려진 블록 ${H0}개) → 정답 ${value}, 선지 ${nums.join('·')}(정답 ${CIRC[ansPos - 1]}), 가시성 검사(대안 ${vis.tested}가지) 통과`);
-    ctx.counts.push({ id: ctx.id(no), mode: cfg.mode, nums, ansPos });
+    ctx.counts.push({ id: ctx.id(no), mode: cfg.mode, nums, ansPos, errs: picked.map((m) => (m.why ? m.err : 'ans')), pm1: nc.pm1, mid: nc.mid });
     if (cfg.mode === 'cuboid') {
       return {
         _debug: { figure: h },
@@ -1657,7 +1985,14 @@ const SET_PLANS = {
       { X: 4, Y: 4, maxH: 3, minCount: 15, maxCount: 24, view: 'right', hard: true },
     ],
     net: [{ net: 2, mode: 'can' }, { net: 7, mode: 'cannot', hard: true }],
-    paper: { plan: [{ t: 'v', k: 2, flap: 'L' }, { t: 'h', k: 1, flap: 'T' }], holes: 2, minHoles: 5, maxHoles: 6 },
+    // 오답 : 한 단계를 잘못 펼친 오답과 그 회전·반전 짝(오답끼리의 묶음) + 한 단계를 빠뜨린 오답 + 다른 단계를 잘못 펼친 오답(정답의 회전·반전 없음)
+    paper: {
+      plan: [{ t: 'v', k: 2, flap: 'L' }, { t: 'h', k: 1, flap: 'T' }], holes: 2, minHoles: 5, maxHoles: 6,
+      mixes: [
+        [{ t: 'err', kinds: ['line', 'translate'], tag: 'W' }, { t: 'tf', of: 'W' }, { t: 'skip' }, { t: 'err', kinds: ['line', 'translate'] }],
+        [{ t: 'err', kinds: ['line', 'translate'], tag: 'W' }, { t: 'tf', of: 'W' }, { t: 'skip' }, { t: 'double' }],
+      ],
+    },
     count: { X: 4, Y: 3, maxH: 3, minCount: 15, maxCount: 22, mode: 'count', ansPos: 4 },
   },
   2: {
@@ -1672,7 +2007,14 @@ const SET_PLANS = {
       { X: 4, Y: 3, maxH: 4, minCount: 14, maxCount: 24, view: 'front', hard: true },
     ],
     net: [{ net: 5, mode: 'can' }, { net: 9, mode: 'cannot', hard: true }],
-    paper: { plan: [{ t: 'v', k: 1, flap: 'L' }, { t: 'h', k: 1, flap: 'T' }, { t: 'd', d: '\\', flap: 'U' }], holes: 2, minHoles: 6, maxHoles: 8 },
+    // 오답 : 정답의 회전·반전 1 + 종이 가운데 선(또는 반대 대각선) 기준으로 잘못 펼친 오답과 그 회전·반전 짝 + 두 단계를 잘못 펼친 오답
+    paper: {
+      plan: [{ t: 'v', k: 1, flap: 'L' }, { t: 'h', k: 1, flap: 'T' }, { t: 'd', d: '\\', flap: 'U' }], holes: 2, minHoles: 6, maxHoles: 8,
+      mixes: [
+        [{ t: 'RA' }, { t: 'err', kinds: ['line', 'otherDiag'], tag: 'W' }, { t: 'tf', of: 'W' }, { t: 'double' }],
+        [{ t: 'RA' }, { t: 'double', tag: 'W' }, { t: 'tf', of: 'W' }, { t: 'err', kinds: ['line', 'otherDiag', 'translate'] }],
+      ],
+    },
     count: { X: 3, Y: 4, maxH: 3, minCount: 13, maxCount: 20, mode: 'cuboid', ansPos: 2 },
   },
   3: {
@@ -1687,8 +2029,12 @@ const SET_PLANS = {
       { X: 4, Y: 4, maxH: 3, minCount: 15, maxCount: 26, view: 'top', hard: true },
     ],
     net: [{ net: 1, mode: 'can' }, { net: 10, mode: 'cannot', hard: true }],
-    paper: { plan: [{ t: 'v', k: 1, flap: 'L' }, { t: 'h', k: 2, flap: 'B' }, { t: 'v', k: 2, flap: 'L' }], holes: 2, minHoles: 6, maxHoles: 8 },
-    count: { X: 4, Y: 4, maxH: 3, minCount: 20, maxCount: 30, mode: 'count', ansPos: 5 },
+    // 오답 : 정답의 회전·반전 + 한 단계를 빠뜨린 오답과 그것을 같은 방식으로 돌리거나 뒤집은 짝(정답 묶음과 나란한 묶음) + 잘못 펼친 오답
+    paper: {
+      plan: [{ t: 'v', k: 1, flap: 'L' }, { t: 'h', k: 2, flap: 'B' }, { t: 'v', k: 2, flap: 'L' }], holes: 2, minHoles: 6, maxHoles: 8,
+      mixes: [[{ t: 'RA', tag: 'R' }, { t: 'skip', tag: 'S' }, { t: 'tf', of: 'S', same: 'R' }, { t: 'err', kinds: ['line', 'translate'] }]],
+    },
+    count: { X: 4, Y: 4, maxH: 3, minCount: 20, maxCount: 30, mode: 'count', ansPos: 3 },
   },
 };
 
@@ -1728,6 +2074,7 @@ function buildSet(setNo) {
     metrics: [],
     metric: (no, type, measure, st, extra = '', { tieOk = false } = {}) => ctx.metrics.push({ id: ctx.id(no), type, measure, ans: st.ans, minOther: st.minOther, maxOther: st.maxOther, rank: st.rank, sums: st.sums, extra, tieOk }),
     counts: [],
+    cues: [],
     usedTops: new Set(),
   };
   const answers = placeAnswer(balancedAnswers(new Rng(hashSeed(SEEDS[setNo], 'answers')), 10), 9, plan.count.ansPos);
@@ -1739,7 +2086,7 @@ function buildSet(setNo) {
   raw.push(buildCount(ctx, 10, plan.count, answers[9]));
   const debug = raw.map((it, i) => ({ id: ctx.id(i + 1), ...(it._debug || {}) }));
   const items = raw.map((it, i) => { const { _debug, ...rest } = it; return { id: ctx.id(i + 1), ...rest }; });
-  return { items, logs, answers, debug, metrics: ctx.metrics, counts: ctx.counts };
+  return { items, logs, answers, debug, metrics: ctx.metrics, counts: ctx.counts, cues: ctx.cues };
 }
 
 // ───────────────────────────── 최종 검증 ─────────────────────────────
@@ -1754,6 +2101,8 @@ function validateItems(setNo, items) {
     assert(it.stem && it.subtype, `${it.id} stem/subtype`);
     const svgs = [];
     if (it.figure) svgs.push(it.figure.svg);
+    if (it.figure && it.figure.svgNarrow) svgs.push(it.figure.svgNarrow);
+    assert(!it.figure || Object.keys(it.figure).every((k) => ['svg', 'svgNarrow', 'caption'].includes(k)), `${it.id} figure 필드`);
     if (it.choiceSvgs) { assert(it.choiceSvgs.length === 5 && !it.choices, `${it.id} choiceSvgs`); svgs.push(...it.choiceSvgs); assert(new Set(it.choiceSvgs).size === 5, `${it.id} 선지 그림 중복`); }
     else {
       assert(Array.isArray(it.choices) && it.choices.length === 5 && new Set(it.choices).size === 5, `${it.id} choices`);
@@ -1781,11 +2130,11 @@ function main() {
   const t0 = Date.now();
   console.log('공간지각 문항 생성 (tools/gen-spatial.mjs)');
   const debugAll = {};
-  const metricsAll = [], countsAll = [];
+  const metricsAll = [], countsAll = [], cuesAll = [];
   for (const setNo of [1, 2, 3]) {
-    const { items, logs, debug, metrics, counts } = buildSet(setNo);
+    const { items, logs, debug, metrics, counts, cues } = buildSet(setNo);
     debugAll[setNo] = debug;
-    metricsAll.push(...metrics); countsAll.push(...counts);
+    metricsAll.push(...metrics); countsAll.push(...counts); cuesAll.push(...cues);
     const dist = validateItems(setNo, items);
     const file = path.join(OUT_DIR, `set${setNo}-spatial.js`);
     const header = `/* 자동 생성 파일: tools/gen-spatial.mjs (seed 0x${SEEDS[setNo].toString(16)}). 직접 고치지 말고 생성기를 다시 실행할 것. 공간지각 ${items.length}문항. */`;
@@ -1803,8 +2152,30 @@ function main() {
     }
     console.log(`  ${m.id} ${m.type.padEnd(14)} ${m.measure}: 정답 ${m.ans} / 최소 오답 ${m.minOther} (정답 순위 ${m.rank}/5, 전체 ${m.sums.join('·')})${m.extra ? ' ' + m.extra : ''}`);
   }
-  // 블록 개수 문항의 정답 위치가 회차마다 달라야 한다
+  // 찍기 단서 점검 2 : 선지끼리의 구조(회전·반전 동치류, 포함 관계, 원소 수, 대칭) 단서. 단서 이름{가리키는 선지}, '좁힘'은
+  // 정답을 가리키는 단서(또는 두 단서의 교집합) 가운데 가장 적은 선지 수(2 이상이어야 하며 클수록 단서가 약하다).
+  console.log('\n선지 구조 단서 점검 (단서 하나 또는 두 단서의 교집합이 정답 하나만 가리키면 실패)');
+  for (const c of cuesAll) {
+    if (c.kind === 'paper') assert(!c.fail, `${c.id} 구조 단서 ${c.fail}`);
+    console.log(`  ${c.id} ${c.kind.padEnd(5)} 정답 ${CIRC[c.ans - 1]} ${c.fail ? '실패 ' + c.fail : '통과'} (좁힘 ${c.narrow}) ${c.text}`);
+  }
+  // 종이 접기 오답 구성은 회차마다 달라야 한다 : 오답 종류·회전반전 동치류 구조·포함 관계를 묶은 서명이 서로 다르고,
+  // 동치류 구조도 세 회차가 모두 같지는 않아야 한다.
+  const paperPats = cuesAll.filter((c) => c.kind === 'paper');
+  console.log('\n종이 접기 오답 구성 (회전·반전 동치류 크기, A = 정답이 든 묶음 | 포함 관계 | 오답 종류)');
+  paperPats.forEach((c) => console.log(`  ${c.id} ${c.pattern.cls} | ${c.pattern.inc} | ${c.pattern.kinds}`));
+  assert(new Set(paperPats.map((c) => c.pattern.sig)).size === paperPats.length, '종이 접기 오답 구성이 회차끼리 같음');
+  assert(new Set(paperPats.map((c) => c.pattern.cls)).size > 1, '종이 접기 회전·반전 동치류 구조가 세 회차 모두 같음');
+  assert(new Set(paperPats.map((c) => c.pattern.kinds)).size === paperPats.length, '종이 접기 오답 종류 조합이 회차끼리 같음');
+  // 블록 개수 문항의 정답 위치가 회차마다 달라야 하고, 정답이 최솟값·최댓값·중앙값인 패턴이 회차끼리 반복되지 않아야 한다
   assert(new Set(countsAll.map((c) => c.ansPos)).size === countsAll.length, `블록 개수 문항 정답 위치가 회차끼리 겹침 ${countsAll.map((c) => c.ansPos).join(',')}`);
+  const posName = (p) => (p === 1 ? '최솟값' : p === 5 ? '최댓값' : p === 3 ? '중앙값' : null);
+  const posNames = countsAll.map((c) => posName(c.ansPos)).filter(Boolean);
+  assert(new Set(posNames).size === posNames.length, `블록 개수 정답이 ${posNames.join(',')} 패턴을 반복`);
+  console.log('\n블록 개수 숫자 선지 점검 (과다=있는 블록을 더 셈, 과소=덜 셈 / ±1 단서 / 한가운데 값 단서)');
+  for (const c of countsAll) {
+    console.log(`  ${c.id} ${c.mode === 'cuboid' ? '직육면체' : '개수'} 선지 ${c.nums.map((v, i) => `${v}${c.errs[i] === 'ans' ? '(정답)' : c.errs[i] === 'over' ? '(과다)' : c.errs[i] === 'under' ? '(과소)' : '(기타)'}`).join(' · ')} | 정답 ${CIRC[c.ansPos - 1]}${posName(c.ansPos) ? ' = ' + posName(c.ansPos) : ''} | ±1이 모두 있는 값 ${c.pm1.join(',') || '없음'} | 한가운데 값 ${c.mid.join(',') || '없음'}`);
+  }
   // 선택: 높이맵 등 내부 구조를 JSON으로 내보내 미리보기 검수에 쓴다(데이터 파일에는 들어가지 않는다)
   if (process.env.SPATIAL_DEBUG_OUT) fs.writeFileSync(process.env.SPATIAL_DEBUG_OUT, JSON.stringify(debugAll));
   console.log(`\n모든 검증 통과 (${((Date.now() - t0) / 1000).toFixed(1)}s)`);

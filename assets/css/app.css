@@ -37,7 +37,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 a { color: var(--accent); }
 .hidden { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.foot-end { display: none; }
+.btn.foot-end { display: none; }
 .no-select { user-select: none; -webkit-user-select: none; }
 
 /* 공통 버튼 */
@@ -170,7 +170,8 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 .pane.passage { flex: 1 1 52%; background: var(--paper); border-right: 1px solid var(--line); }
 .pane.question { flex: 1 1 48%; background: #fbfbfc; }
 .pane.single { flex: 1; background: var(--paper); }
-.pane.single .q-wrap { max-width: 900px; margin: 0 auto; }
+.pane.single .q-wrap { max-width: 960px; margin: 0 auto; }
+.pane.single { padding-bottom: 24px; }
 .omr {
   flex: 0 0 236px; background: #fff; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0;
 }
@@ -230,8 +231,10 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 .q-box ul { list-style: none; margin: 0; padding: 0; }
 .q-box li { margin: 0 0 7px; line-height: 1.65; padding-left: 1.1em; text-indent: -1.1em; }
 .q-figure { margin: 4px 0 16px; text-align: center; }
-.q-figure svg { max-width: 100%; height: auto; max-height: 360px; }
+/* 1366×768 노트북에서도 그림과 선지가 한 화면에 들어오도록 높이를 화면에 맞춘다. */
+.q-figure svg { max-width: 100%; height: auto; max-height: min(360px, 33vh); }
 .q-figure .cap { font-size: 12.5px; color: var(--ink-2); }
+.q-figure .fig-narrow { display: none; }
 .choices { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
 .choice {
   display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left;
@@ -254,7 +257,7 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 .choice-grid .choice { flex-direction: column; align-items: stretch; padding: 8px; gap: 4px; }
 .choice-grid .choice .mk { align-self: flex-start; width: 24px; flex: 0 0 24px; }
 .choice-grid .choice .vis { display: block; width: 100%; text-align: center; }
-.choice-grid .choice .vis svg { width: 100%; height: auto; max-height: 220px; display: block; margin: 0 auto; }
+.choice-grid .choice .vis svg { width: 100%; height: auto; max-height: min(220px, 20vh); display: block; margin: 0 auto; }
 .pane.question .choice-grid.five-wide { grid-template-columns: repeat(3, 1fr); }
 .explain { margin-top: 18px; border-top: 2px solid var(--navy); padding-top: 12px; }
 .explain .head { font-weight: 800; color: var(--navy); margin-bottom: 6px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -391,7 +394,7 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
   .palette button { flex: 0 0 auto; }
   .exam-foot { gap: 6px; padding: 0 8px; }
   .exam-foot .btn { padding: 8px 10px; min-height: 38px; }
-  .foot-end { display: inline-flex; }
+  .btn.foot-end { display: inline-flex; }
   .exam-tools { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
   .exam-tools .spacer { display: none; }
   .exam-tools .btn, .exam-tools .qno-label { white-space: nowrap; }
@@ -408,6 +411,9 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 }
 @media (max-width: 560px) {
   .page-head { padding: 0 16px; }
+  .q-figure .fig-wide { display: none; }
+  .q-figure .fig-narrow { display: block; }
+  .q-figure .fig-narrow svg { max-height: 420px; }
   .card { padding: 18px 16px; }
   .hero h1 { font-size: 22px; }
   .lk { width: 22px; height: 22px; font-size: 10.5px; }

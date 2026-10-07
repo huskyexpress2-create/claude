@@ -40,6 +40,8 @@ HMAT.addPersonalityBank([ /* Statement */ ]);
   stem: '다음 글의 내용과 일치하지 않는 것은?',   // 발문
   box: { title: '보기', items: ['ㄱ. ...', 'ㄴ. ...'] },   // 선택. <보기>나 <조건> 상자
   figure: { svg: '<svg ...>...</svg>', caption: '' },   // 선택. 코드로 생성한 그림
+                             // figure.svgNarrow : 선택. 좁은 화면(폭 560px 이하, 휴대폰)에서 svg 대신 보여 줄 그림.
+                             // 가로로 긴 그림(예: 종이 접기 4단계)을 두 줄로 다시 배치한 같은 내용의 SVG이다.
   choices: ['...', '...', '...', '...', '...'],   // 선지 5개. 번호 ①~⑤는 붙이지 않는다.
   choiceCharts: [ ChartSpec x5 ],   // 선택. 선지가 그래프일 때 쓰며, 이때 choices는 생략한다.
   choiceSvgs: [ '<svg>' x5 ],       // 선택. 선지가 생성된 그림일 때 쓰며, 이때 choices는 생략한다.
