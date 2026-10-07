@@ -210,22 +210,35 @@ function sameSig(m1, m2) {
  *      블록이 없는 칸은 바닥판이 적어도 절반 보일 것
  *  (2) 어느 한 칸의 높이를 0~(최대+1) 사이 다른 값으로 바꾸면 그림이 반드시 달라질 것
  *  (3) 화면에서 겹칠 수 있는 두 칸(|Δ(x+y)|≤1)을 동시에 바꿔도 그림이 반드시 달라질 것
+ * 읽기 쉬움 조건(선택) : 수험생이 그림에서 높이를 직접 읽어야 하는 문항에 쓴다.
+ *  fullTops       : 모든 열의 윗면이 온전히(격자 삼각형 2개) 보일 것
+ *  critical       : 'front' | 'right'. 정답을 정하는 기둥(정면도라면 열마다, 우측면도라면 줄마다 가장 높은 기둥)의
+ *                   윗면은 온전히 보일 것
+ *  maxPartialTops : 일부가 가려진 윗면의 최대 개수
+ *  fullFloor      : 빈칸의 바닥판이 온전히 보일 것(반쯤 가려진 빈칸은 블록이 있는 칸으로 잘못 읽기 쉽다)
  */
-function checkVisibility(h, { fullTops = false } = {}) {
+function checkVisibility(h, { fullTops = false, critical = null, maxPartialTops = Infinity, fullFloor = false } = {}) {
   const Y = h.length, X = h[0].length;
   const base = renderTris(h);
   const ownCount = new Map();
   for (const idx of base.owner.values()) ownCount.set(idx, (ownCount.get(idx) || 0) + 1);
+  const crit = new Set();
+  if (critical === 'front') for (let x = 0; x < X; x++) { const m = Math.max(...h.map((r) => r[x])); for (let y = 0; y < Y; y++) if (m > 0 && h[y][x] === m) crit.add(x + ',' + y); }
+  if (critical === 'right') for (let y = 0; y < Y; y++) { const m = Math.max(...h[y]); for (let x = 0; x < X; x++) if (m > 0 && h[y][x] === m) crit.add(x + ',' + y); }
+  let partial = 0;
   for (let y = 0; y < Y; y++) for (let x = 0; x < X; x++) {
     if (h[y][x] === 0) continue;
-    const idx = base.topFace.get(x + ',' + y);
-    if (!ownCount.get(idx) || (fullTops && ownCount.get(idx) < 2)) return { ok: false, reason: `윗면 가림 (${x},${y})` };
+    const n = ownCount.get(base.topFace.get(x + ',' + y)) || 0;
+    if (!n || (n < 2 && (fullTops || crit.has(x + ',' + y)))) return { ok: false, reason: `윗면 가림 (${x},${y})` };
+    if (n < 2) partial++;
   }
+  if (partial > maxPartialTops) return { ok: false, reason: `일부가 가려진 윗면 ${partial}개` };
   // 빈칸은 바닥판이 적어도 절반은 보여야 한다(구덩이 바닥이 안 보이면 블록이 숨어 있는지 알 수 없다)
   for (let y = 0; y < Y; y++) for (let x = 0; x < X; x++) {
     if (h[y][x] !== 0) continue;
     const a = x + y, b = x - y;
-    if (base.owner.has(TK(0, a, b)) && base.owner.has(TK(1, a + 1, b))) return { ok: false, reason: `빈칸 바닥 가림 (${x},${y})` };
+    const hidden = (base.owner.has(TK(0, a, b)) ? 1 : 0) + (base.owner.has(TK(1, a + 1, b)) ? 1 : 0);
+    if (hidden === 2 || (fullFloor && hidden > 0)) return { ok: false, reason: `빈칸 바닥 가림 (${x},${y})` };
   }
   const maxAlt = hmMax(h) + 1;
   const g = hmClone(h);
@@ -277,7 +290,7 @@ function hmValid(h, X, Y, maxH, needHole) {
   if (needHole && !h.some((r) => r.some((v) => v === 0))) return false;
   return true;
 }
-function genHeightmap(rng, { X, Y, maxH, minCount, maxCount, zeroP = 0.14, needHole = false, minLevels = 2, fullTops = false }) {
+function genHeightmap(rng, { X, Y, maxH, minCount, maxCount, zeroP = 0.14, needHole = false, minLevels = 2, maxHoles = Infinity, read = {} }) {
   for (let t = 0; t < 40000; t++) {
     const h = [];
     for (let y = 0; y < Y; y++) {
@@ -295,7 +308,8 @@ function genHeightmap(rng, { X, Y, maxH, minCount, maxCount, zeroP = 0.14, needH
     if (n < minCount || n > maxCount) continue;
     const levels = new Set(h.flat().filter((v) => v > 0));
     if (levels.size < minLevels) continue;
-    if (!checkVisibility(h, { fullTops }).ok) continue;
+    if (h.flat().filter((v) => v === 0).length > maxHoles) continue;
+    if (!checkVisibility(h, read).ok) continue;
     return h;
   }
   throw new GenError('높이맵 생성 실패');
@@ -524,12 +538,52 @@ function buildViewsToSolid(ctx, no, cfg, ansPos) {
 
 // ───────────────────── 2) 입체 → 투상도 ─────────────────────
 const VIEW_NAME = { front: '정면도', right: '우측면도', top: '평면도' };
+// 정면도·우측면도 문항의 읽기 쉬움 조건 : 정답을 정하는 기둥의 윗면은 온전히 보이고, 일부가 가려진 윗면은 1개까지,
+// 빈칸은 바닥이 온전히 보이는 것만 2개까지 둔다(빈칸은 정면도·우측면도 답과 무관하고 그림만 복잡하게 만든다).
+const SIDE_READ = (view) => ({ critical: view, maxPartialTops: 1, fullFloor: true });
+const SIDE_MAX_HOLES = 2;
+const ordList = (idx) => idx.map((i) => i + 1).join('·');
+function rowName(y, Y) { return y === 0 ? '맨 앞줄' : y === Y - 1 ? '맨 뒷줄' : `앞에서 ${y + 1}번째 줄`; }
+function colName(x, X) { return x === 0 ? '맨 왼쪽 칸' : x === X - 1 ? '맨 오른쪽 칸' : `왼쪽에서 ${x + 1}번째 칸`; }
+// 열(또는 줄)마다 가장 높은 기둥이 어디에 있는지 해설용으로 적는다.
+function whereTallest(h, view) {
+  const Y = h.length, X = h[0].length;
+  const parts = [];
+  if (view === 'front') {
+    for (let x = 0; x < X; x++) {
+      const m = Math.max(...h.map((r) => r[x]));
+      const ys = []; for (let y = 0; y < Y; y++) if (h[y][x] === m) ys.push(y);
+      parts.push(`${x + 1}열 ${ys.length === 1 ? rowName(ys[0], Y) : `앞에서 ${ordList(ys)}번째 줄`}(${m}층)`);
+    }
+  } else {
+    for (let y = 0; y < Y; y++) {
+      const m = Math.max(...h[y]);
+      const xs = []; for (let x = 0; x < X; x++) if (h[y][x] === m) xs.push(x);
+      parts.push(`${rowName(y, Y)} ${xs.length === 1 ? colName(xs[0], X) : `왼쪽에서 ${ordList(xs)}번째 칸`}(${m}층)`);
+    }
+  }
+  return parts.join(', ');
+}
+// 가장 높은 기둥이 맨 뒤 윤곽보다 높은(앞쪽에 있는) 열/줄의 번호
+function hiddenMaxLines(h, view) {
+  const Y = h.length, X = h[0].length, out = [];
+  if (view === 'front') { for (let x = 0; x < X; x++) if (h[Y - 1][x] < Math.max(...h.map((r) => r[x]))) out.push(x); }
+  else for (let y = 0; y < Y; y++) if (h[y][0] < Math.max(...h[y])) out.push(y);
+  return out;
+}
 function buildSolidToView(ctx, no, cfg, ansPos) {
   const view = cfg.view;
+  const read = view === 'top' ? {} : SIDE_READ(view);
   for (let attempt = 0; attempt < 60; attempt++) {
     const rng = ctx.rng('s2v', no, attempt);
     let h;
-    try { h = genHeightmap(rng, { ...cfg, needHole: view === 'top' }); } catch (e) { if (e instanceof GenError) continue; throw e; }
+    try {
+      h = genHeightmap(rng, { ...cfg, needHole: view === 'top', read, ...(view === 'top' ? {} : { maxHoles: SIDE_MAX_HOLES }) });
+    } catch (e) { if (e instanceof GenError) continue; throw e; }
+    assert(checkVisibility(h, read).ok, `${ctx.id(no)} 입체 그림 읽기 쉬움 조건`);
+    // 어려운 정면도·우측면도 문항은 그림의 맨 뒤 윤곽(정면도라면 맨 뒷줄, 우측면도라면 맨 왼쪽 열)만 베껴서는 풀리지 않게,
+    // 적어도 한 열(줄)은 가장 높은 기둥이 그보다 앞쪽(오른쪽)에 있는 더미만 쓴다.
+    if (cfg.hard && view !== 'top' && !hiddenMaxLines(h, view).length) continue;
     const V = hmViews(h);
     if (ctx.usedTops.has(bmKey(topBitmapOf(V.top)))) continue;
     const cands = []; // {v: bitmap, why, kind}
@@ -559,6 +613,17 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
       const arr = view === 'front' ? V.front : V.right;
       const other = view === 'front' ? V.right : V.front;
       correct = skyBitmap(arr);
+      const hid = hiddenMaxLines(h, view);
+      if (cfg.hard && hid.length) {
+        // 맨 뒤 윤곽만 베낀 모양 : 앞쪽(오른쪽)에 있는 더 높은 기둥을 놓친 오답
+        const Y = h.length;
+        const sil = view === 'front' ? h[Y - 1].slice() : h.map((r) => r[0]);
+        const i = hid[0];
+        const missed = view === 'front'
+          ? `왼쪽에서 ${i + 1}번째 열 ${rowName(h.map((r) => r[i]).lastIndexOf(arr[i]), Y)}의 ${arr[i]}층 기둥`
+          : `${rowName(i, Y)} ${colName(h[i].lastIndexOf(arr[i]), h[0].length)}의 ${arr[i]}층 기둥`;
+        cands.push({ v: skyBitmap(sil), why: `${view === 'front' ? '맨 뒷줄' : '맨 왼쪽 열'} 기둥만 보고 그린 모양으로, 그보다 ${view === 'front' ? '앞쪽' : '오른쪽'}에 있는 더 높은 기둥(${missed})을 놓친 것`, kind: 'concept' });
+      }
       cands.push({ v: skyBitmap(arr.slice().reverse()), why: view === 'front' ? '좌우가 뒤바뀐 모양(뒤에서 본 모양)' : '좌우가 뒤바뀐 모양(왼쪽에서 본 모양)', kind: 'concept' });
       cands.push({ v: skyBitmap(other), why: view === 'front' ? '오른쪽에서 본 모양(우측면도)' : '앞에서 본 모양(정면도)', kind: 'concept' });
       cands.push({ v: skyBitmap(other.slice().reverse()), why: view === 'front' ? '왼쪽에서 본 모양(좌측면도)' : '뒤에서 본 모양', kind: 'concept' });
@@ -577,8 +642,8 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
       }
       cands.push(...rng.shuffle(subtle));
       rightDesc = view === 'front'
-        ? `앞에서 보면 열마다 가장 높은 블록까지만 보인다. 왼쪽 열부터 가장 높은 층수가 ${arr.join('·')}층이므로 정면도는 ${CIRC[ansPos - 1]}이다.`
-        : `오른쪽에서 보면 줄마다 가장 높은 블록까지만 보이고, 그림의 왼쪽이 입체의 앞쪽이 된다. 앞줄부터 가장 높은 층수가 ${arr.join('·')}층이므로 우측면도는 ${CIRC[ansPos - 1]}이다.`;
+        ? `앞에서 보면 열마다 가장 높은 블록까지만 보인다. 열마다 가장 높은 기둥은 ${whereTallest(h, 'front')}이다. 왼쪽 열부터 가장 높은 층수가 ${arr.join('·')}층이므로 정면도는 ${CIRC[ansPos - 1]}이다.`
+        : `오른쪽에서 보면 줄마다 가장 높은 블록까지만 보이고, 그림의 왼쪽이 입체의 앞쪽이 된다. 줄마다 가장 높은 기둥은 ${whereTallest(h, 'right')}이다. 앞줄부터 가장 높은 층수가 ${arr.join('·')}층이므로 우측면도는 ${CIRC[ansPos - 1]}이다.`;
     }
     const keys = new Set([bmKey(correct)]);
     const picked = [];
@@ -601,7 +666,8 @@ function buildSolidToView(ctx, no, cfg, ansPos) {
     ctx.usedTops.add(bmKey(topBitmapOf(V.top)));
     const choiceSvgs = bitmapChoiceSVGs(list, list.map((_, i) => `${CIRC[i]} 격자 투상도`), { bottomAlign: view !== 'top' });
     const wrongs = meta.map((m, i) => (m ? `${j(CIRC[i], '은/는')} ${m.why}이다.` : null)).filter(Boolean);
-    ctx.log(no, `${VIEW_NAME[view]} 묻기, 블록 ${hmCount(h)}개, 오답 [${meta.filter(Boolean).map((m) => m.kind).join(',')}], 정답 비트맵 유일`);
+    const readTxt = view === 'top' ? '' : `, 빈칸 ${h.flat().filter((v) => v === 0).length}개(바닥 모두 보임), 답을 정하는 기둥 윗면 모두 보임`;
+    ctx.log(no, `${VIEW_NAME[view]} 묻기, 블록 ${hmCount(h)}개${readTxt}, 오답 [${meta.filter(Boolean).map((m) => m.kind).join(',')}], 정답 비트맵 유일`);
     const dirWord = view === 'front' ? '앞에서 본 모양(정면도)' : view === 'right' ? '오른쪽에서 본 모양(우측면도)' : '위에서 본 모양(평면도)';
     return {
       _debug: { figure: h, choices: list.map((b) => b.rows) },
@@ -1190,22 +1256,27 @@ function buildCount(ctx, no, cfg, ansPos) {
   for (let attempt = 0; attempt < 40; attempt++) {
     const rng = ctx.rng('count', no, attempt);
     let h;
-    // 개수 세기 문항은 모든 열의 윗면이 온전히 보이는 더미만 쓴다(열마다 높이를 읽을 수 있게)
-    try { h = genHeightmap(rng, { ...cfg, minLevels: 3, fullTops: true }); } catch (e) { if (e instanceof GenError) continue; throw e; }
+    // 개수 세기 문항은 모든 열의 윗면이 온전히 보이고, 빈칸은 바닥이 온전히 보이는 더미만 쓴다.
+    // (열마다 높이를 읽을 수 있고, 빈칸을 '보이지 않는 곳'으로 오해해 채워 세지 않게)
+    const read = { fullTops: true, fullFloor: true };
+    try { h = genHeightmap(rng, { ...cfg, minLevels: 3, read }); } catch (e) { if (e instanceof GenError) continue; throw e; }
     const N = hmCount(h);
     const maxH = hmMax(h), X = h[0].length, Y = h.length;
     const levels = [];
     for (let z = 1; z <= maxH; z++) levels.push(h.flat().filter((v) => v >= z).length);
     assert(levels.reduce((a, b) => a + b, 0) === N, '층별 합계');
-    const vis = checkVisibility(h, { fullTops: true });
+    const vis = checkVisibility(h, read);
     assert(vis.ok, `${ctx.id(no)} 블록 더미 가시성`);
+    const holes = h.flat().filter((v) => v === 0).length;
+    const grid = h.map((r) => r.join('·')).join(' / ');
+    const gridTxt = `칸마다 높이를 앞줄부터 왼쪽→오른쪽 순서로 적으면 ${grid}이고, 모두 더해도 ${N}개이다${holes ? `(0은 바닥판이 그대로 드러난 빈칸 ${holes}개로, 가려진 곳이 아니라 비어 있는 칸이다)` : ''}.`;
     const value = cfg.mode === 'cuboid' ? X * Y * maxH - N : N;
     if (value < 5) continue;
     const nums = [];
     for (let i = 1; i <= 5; i++) nums.push(value + (i - ansPos));
     assert(nums[ansPos - 1] === value && nums.every((v) => v > 0), '숫자 선지');
     const lv = levels.map((n, i) => `${i + 1}층 ${n}개`).join(' + ');
-    ctx.log(no, `${cfg.mode === 'cuboid' ? '직육면체 완성' : '개수 세기'}: ${X}×${Y}×${maxH}, 블록 ${N}개 → 정답 ${value}, 가시성 검사(대안 ${vis.tested}가지) 통과`);
+    ctx.log(no, `${cfg.mode === 'cuboid' ? '직육면체 완성' : '개수 세기'}: ${X}×${Y}×${maxH}, 블록 ${N}개(빈칸 ${holes}개, 바닥 모두 보임) → 정답 ${value}, 가시성 검사(대안 ${vis.tested}가지) 통과`);
     if (cfg.mode === 'cuboid') {
       return {
         _debug: { figure: h },
@@ -1214,7 +1285,7 @@ function buildCount(ctx, no, cfg, ansPos) {
         figure: { svg: isoSVGs([h], 28, { arrow: false }, ['블록 더미'])[0], caption: '' },
         choices: nums.map((v) => `${v}개`),
         answer: ansPos,
-        explanation: `정답 ${CIRC[ansPos - 1]}: 가장 작은 직육면체는 가로 ${X}칸 × 세로 ${Y}칸 × 높이 ${maxH}층이므로 ${X * Y * maxH}개가 필요하다. 지금 있는 블록은 층별로 세면 ${lv} = ${N}개이므로 ${X * Y * maxH} − ${N} = ${value}개가 더 필요하다.<br>${CIRC[ansPos === 1 ? 1 : ansPos - 2]}처럼 답이 1~2개 어긋나는 것은 아래층에 가려진 블록을 빠뜨리거나 두 번 센 경우이다.`,
+        explanation: `정답 ${CIRC[ansPos - 1]}: 가장 작은 직육면체는 가로 ${X}칸 × 세로 ${Y}칸 × 높이 ${maxH}층이므로 ${X * Y * maxH}개가 필요하다. 지금 있는 블록은 층별로 세면 ${lv} = ${N}개이므로 ${X * Y * maxH} − ${N} = ${value}개가 더 필요하다.<br>${gridTxt}<br>${CIRC[ansPos === 1 ? 1 : ansPos - 2]}처럼 답이 1~2개 어긋나는 것은 아래층에 가려진 블록을 빠뜨리거나 두 번 센 경우이다.`,
       };
     }
     return {
@@ -1224,7 +1295,7 @@ function buildCount(ctx, no, cfg, ansPos) {
       figure: { svg: isoSVGs([h], 28, { arrow: false }, ['블록 더미'])[0], caption: '' },
       choices: nums.map((v) => `${v}개`),
       answer: ansPos,
-      explanation: `정답 ${CIRC[ansPos - 1]}: 층별로 센다. 바닥(1층)에는 블록이 놓인 칸 수만큼, 2층 이상에는 그 높이 이상인 칸 수만큼 있다. ${lv} = ${N}개.<br>위에서 본 칸마다 높이를 적어 더해도 된다. 답이 1~2개 어긋나는 선지는 뒤쪽 열이나 아래층에 가려진 블록을 빠뜨리거나 두 번 센 경우이다.`,
+      explanation: `정답 ${CIRC[ansPos - 1]}: 층별로 센다. 바닥(1층)에는 블록이 놓인 칸 수만큼, 2층 이상에는 그 높이 이상인 칸 수만큼 있다. ${lv} = ${N}개.<br>위에서 본 칸마다 높이를 적어 더해도 된다. ${gridTxt}<br>답이 1~2개 어긋나는 선지는 뒤쪽 열이나 아래층에 가려진 블록을 빠뜨리거나 두 번 센 경우이다.`,
     };
   }
   throw new Error(`${ctx.id(no)} 블록 개수 생성 실패`);

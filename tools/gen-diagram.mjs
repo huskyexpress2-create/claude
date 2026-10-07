@@ -371,11 +371,12 @@ const pathCount = (trace) => trace.length; // 실제로 지나는 기호 수(변
 /* 흐름도 SVG                                                           */
 /* ------------------------------------------------------------------ */
 const GAP = 26, SYM_W = 40, SYM_R = 17, DIA_R = 23;
+const YN_SIZE = 15, YES_LEAD = 8; // Yes/No 글자 크기, Yes 글자가 다음 기호와 겹치지 않도록 마름모 뒤 화살표를 늘리는 길이
 
 function drawData(dom, spec, x, cy, label) {
   const { w, h } = dom.box;
   let s = '';
-  if (label) s += txt(x + w / 2, cy - h / 2 - 7, label, { size: 12, fill: SUB });
+  if (label) s += txt(x + w / 2, cy - h / 2 - 7, label, { size: 14, weight: 700, fill: SUB });
   if (spec.q) {
     s += `<rect x="${R1(x)}" y="${R1(cy - h / 2)}" width="${w}" height="${h}" rx="4" fill="#ffffff" stroke="${INK}" stroke-width="2"/>`;
     s += txt(x + w / 2, cy + 9, '?', { size: 26, weight: 700 });
@@ -393,7 +394,7 @@ function drawStep(S, st, x, cy) {
   let s = `<circle cx="${R1(cx)}" cy="${R1(cy)}" r="${SYM_R + 1}" fill="#ffffff" stroke="${INK}" stroke-width="1.8" stroke-dasharray="4 3"/>`;
   if (st.slot === '㉠') s += txt(cx, cy + 6.5, '㉠', { size: 18, weight: 700 });
   else s += txt(cx, cy + 7, '?', { size: 20, weight: 700 });
-  if (st.slot === '가' || st.slot === '나') s += txt(cx, cy - SYM_R - 7, `(${st.slot})`, { size: 12, weight: 700 });
+  if (st.slot === '가' || st.slot === '나') s += txt(cx, cy - SYM_R - 7, `(${st.slot})`, { size: 14, weight: 700 });
   return s;
 }
 
@@ -408,10 +409,10 @@ function flowBody(S, prog, inp, out, x0 = 10, yTop = 0) {
   const parts = [];
   let maxLane = 0;
   parts.push(drawData(dom, inp, x0, y0, '입력'));
-  function layout(p, xs, lane) {
+  function layout(p, xs, lane, lead = 0) {
     let cur = xs; const cy = laneY(lane);
     for (const st of p.pre) {
-      parts.push(arrow(cur, cy, cur + GAP, cy)); cur += GAP;
+      parts.push(arrow(cur, cy, cur + GAP + lead, cy)); cur += GAP + lead; lead = 0;
       parts.push(drawStep(S, st, cur, cy)); cur += SYM_W;
     }
     if (!p.cond) return [{ x: cur, lane }];
@@ -419,11 +420,11 @@ function flowBody(S, prog, inp, out, x0 = 10, yTop = 0) {
     const xd = cur + DIA_R;
     parts.push(iconShape(S.map[p.cond.key], xd, cy, DIA_R));
     cur += 2 * DIA_R;
-    parts.push(txt(cur + 3, cy - 6, 'Yes', { size: 11, weight: 700, anchor: 'start' }));
-    const yesEnds = layout(p.cond.yes, cur, lane);
+    parts.push(txt(cur + 3, cy - 6, 'Yes', { size: YN_SIZE, weight: 700, anchor: 'start' }));
+    const yesEnds = layout(p.cond.yes, cur, lane, YES_LEAD);
     const noLane = ++maxLane;
     parts.push(seg(xd, cy + DIA_R, xd, laneY(noLane)));
-    parts.push(txt(xd + 5, cy + DIA_R + 13, 'No', { size: 11, weight: 700, anchor: 'start' }));
+    parts.push(txt(xd + 6, cy + DIA_R + 16, 'No', { size: YN_SIZE, weight: 700, anchor: 'start' }));
     const noEnds = layout(p.cond.no, xd, noLane);
     return yesEnds.concat(noEnds);
   }
@@ -463,9 +464,19 @@ function twoRowSvg(S, rows) {
 function symbolChoiceSvg(sym) {
   return svgDoc(110, 74, iconShape(sym, 55, 28, 18) + txt(55, 66, sym.name, { size: 13, weight: 700 }));
 }
+// 글자 폭 어림(한글 1em, 공백 0.3em, 그 밖 0.62em). viewBox 폭을 정하는 데만 쓴다.
+const estTextW = (str, size) => [...str].reduce((w, c) => w + (/[가-힣]/.test(c) ? 1 : c === ' ' ? 0.3 : 0.62), 0) * size;
+// (가)·(나) 쌍 선지: 위아래 두 줄로 놓아 viewBox 폭을 줄인다. 앱은 SVG를 선지 칸 폭에 맞춰 늘리므로
+// 폭이 좁을수록 기호와 이름이 크게 보인다(데스크톱 5열·휴대폰 2열 모두 칸 폭 약 155px → 이름 약 15px, 기호 약 32px).
+// 한 문항의 다섯 선지가 같은 배율로 보이도록 viewBox는 회차의 가장 긴 기호 이름에 맞춰 고정한다.
 function pairChoiceSvg(S, a, b) {
-  const one = (cx, label, sym) => txt(cx, 15, label, { size: 12, weight: 700, fill: SUB }) + iconShape(sym, cx, 40, 15) + txt(cx, 74, sym.name, { size: 12, weight: 700 });
-  return svgDoc(200, 82, one(50, '(가)', S.map[a]) + seg(100, 12, 100, 70, 1.5) + one(150, '(나)', S.map[b]));
+  const NAME = 15, nameX = 70;
+  const W = nameX + Math.max(...S.tkeys.map((k) => estTextW(S.map[k].name, NAME))) + 6, H = 96;
+  const row = (cy, label, sym) => txt(4, cy + 5, label, { size: 14, weight: 700, fill: SUB, anchor: 'start' }) +
+    iconShape(sym, 47, cy, 16) + txt(nameX, cy + 5.5, sym.name, { size: NAME, weight: 700, anchor: 'start' });
+  return svgDoc(W, H, row(25, '(가)', S.map[a]) +
+    `<line x1="4" y1="48" x2="${R1(W - 4)}" y2="48" stroke="${INK}" stroke-width="1.5" stroke-dasharray="2 4"/>` +
+    row(71, '(나)', S.map[b]));
 }
 function exampleGridSvg(sym, g) {
   const after = sym.f(g);
@@ -532,7 +543,46 @@ function forwardCands(S, prog, x, assign) {
   return cands;
 }
 
-function pickDistractors(rng, cands, answer, dom, kindOrder, n = 4) {
+/* 선지만 보고 정답을 고르는 '요령'을 막는 검사.
+ * 오답은 풀이 과정의 실수에서 나오므로, 그대로 두면 오답끼리 서로 닮고 정답만 튀거나(홀로 다른 것)
+ * 반대로 정답이 모든 오답의 '가운데'(가장 전형적인 것)가 되기 쉽다. 아래 세 가지 요령 중
+ * 하나라도 정답을 가리키면 그 선지 묶음은 쓰지 않는다.
+ *  1) 특징별 홀로 다른 것: 어떤 특징(격자: 원 위치·X 위치·채운 칸 수, 문자열: 자리별 문자·문자 구성)에서
+ *     값이 혼자인 선지가 정답 하나뿐이다. 예: 오답 4개는 X가 모두 1행 1열인데 정답만 X가 다른 곳.
+ *  2) 특징 일치 투표: 선지마다 '같은 특징 값을 가진 선지 수'를 더했을 때 정답이 혼자 최대이거나 혼자 최소이다.
+ *  3) 칸 일치: 선지마다 다른 선지와 같은 칸(자리)의 개수를 더했을 때 정답이 혼자 최대이거나 혼자 최소이다. */
+function featuresOf(dom, v) {
+  if (dom.kind === 'str') return [...[...v].map((c, i) => `${i + 1}째 자리 ${c}`), `문자 구성 ${[...v].sort().join('')}`];
+  return [`원 ${posTxt(posOf(v, 2))}`, `X ${posTxt(posOf(v, 3))}`, `채운 칸 ${filledCount(v)}개`];
+}
+function testwiseFlags(dom, vals, ai) {
+  const flags = [];
+  const F = vals.map((v) => featuresOf(dom, v));
+  for (let f = 0; f < F[0].length; f++) {
+    const col = F.map((x) => x[f]);
+    const lone = col.map((v, i) => (col.filter((w) => w === v).length === 1 ? i : -1)).filter((i) => i >= 0);
+    if (lone.length === 1 && lone[0] === ai) flags.push(`홀로 다른 특징(${col[ai]})`);
+  }
+  const extreme = (score, label) => {
+    const mx = Math.max(...score), mn = Math.min(...score);
+    if (score[ai] === mx && score.filter((s) => s === mx).length === 1) flags.push(`${label} 혼자 최대`);
+    if (score[ai] === mn && score.filter((s) => s === mn).length === 1) flags.push(`${label} 혼자 최소`);
+  };
+  extreme(F.map((fs) => fs.reduce((s, v, f) => s + F.filter((o) => o[f] === v).length, 0)), '특징 일치');
+  const C = vals.map((v) => (dom.kind === 'str' ? [...v] : v));
+  extreme(C.map((a, i) => C.reduce((s, b, j) => s + (i === j ? 0 : a.filter((x, k) => x === b[k]).length), 0)), '칸 일치');
+  return flags;
+}
+const combos4 = (n) => {
+  const out = [];
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let d = c + 1; d < n; d++) out.push([a, b, c, d]);
+  return out;
+};
+
+// 오답 4개 고르기: 먼저 실수 유형(kindOrder)을 돌아가며 하나씩 고르고, 그 묶음이 요령 검사(testwiseFlags)나
+// must 조건에 걸리면 후보 전체에서 4개 조합을 다시 찾는다(유형이 다양하고 앞 순위 유형이 많은 조합 우선).
+function pickDistractors(rng, cands, answer, dom, kindOrder, n = 4, must = null) {
+  const good = (ds) => ds.length === n && (!must || must(ds)) && testwiseFlags(dom, [answer, ...ds.map((d) => d.val)], 0).length === 0;
   const seen = new Set([dom.key(answer)]);
   const byKind = {};
   for (const k of kindOrder) byKind[k] = rng.shuffle(cands.filter((c) => c.kind === k));
@@ -551,7 +601,24 @@ function pickDistractors(rng, cands, answer, dom, kindOrder, n = 4) {
       }
     }
   }
-  return out;
+  if (out.length < n || good(out)) return out;
+  // 다시 찾기: 값이 겹치지 않는 후보만 모아(유형 순위가 앞선 것을 남김) 4개 조합을 모두 살핀다.
+  const rank = (k) => { const i = kindOrder.indexOf(k); return i < 0 ? kindOrder.length : i; };
+  const uniq = new Map();
+  for (const c of rng.shuffle(cands).sort((p, q) => rank(p.kind) - rank(q.kind))) {
+    const key = dom.key(c.val);
+    if (key === dom.key(answer) || !dom.ok(c.val) || uniq.has(key)) continue;
+    uniq.set(key, c);
+  }
+  const pool = [...uniq.values()].slice(0, 18);
+  let best = null, bestScore = -Infinity;
+  for (const idx of combos4(pool.length)) {
+    const ds = idx.map((i) => pool[i]);
+    if (!good(ds)) continue;
+    const score = new Set(ds.map((d) => d.kind)).size * 100 - ds.reduce((s, d) => s + rank(d.kind), 0);
+    if (score > bestScore) { best = ds; bestScore = score; }
+  }
+  return best || [];
 }
 function place(rng, ansVal, ds, target) {
   const others = rng.shuffle(ds);
@@ -636,7 +703,7 @@ function choicesField(S, vals) {
 }
 
 // 순방향 변환(조건 분기 포함 가능)
-function buildForward(ctx, { makeProg, subtype, require, kindOrder, stem }) {
+function buildForward(ctx, { makeProg, subtype, require, kindOrder, stem, mustKinds = [] }) {
   const { rng, S } = ctx;
   for (let att = 0; att < MAX_ITEM_ATTEMPTS; att++) {
     const prog = makeProg();
@@ -646,7 +713,8 @@ function buildForward(ctx, { makeProg, subtype, require, kindOrder, stem }) {
     if (!traceOk(S, x, res)) continue;
     if (require && !require(res, prog, x)) continue;
     const cands = forwardCands(S, prog, x, {});
-    const ds = pickDistractors(rng, cands.filter((c) => !S.dom.same(c.val, x)), res.out, S.dom, kindOrder || ['omit', 'swap', 'err', 'confuse']);
+    const ds = pickDistractors(rng, cands.filter((c) => !S.dom.same(c.val, x)), res.out, S.dom, kindOrder || ['omit', 'swap', 'err', 'confuse'], 4,
+      (d) => mustKinds.every((k) => d.some((u) => u.kind === k)) && (!require?.distractors || require.distractors(d)));
     if (ds.length < 4) continue;
     if (require?.distractors && !require.distractors(ds)) continue;
     const { vals, whys } = place(rng, res.out, ds, ctx.target);
@@ -754,7 +822,8 @@ function buildMissingPair(ctx, { makeProg, require }) {
     if (hits.length !== 1) continue; // 16가지 조합 중 하나만 맞아야 한다.
     // 오답 쌍 고르기: 순서를 바꾼 쌍 1개 + (가)만 같은 쌍 1개 + (나)만 같은 쌍 1개 + 둘 다 다른 쌍 1개.
     // 선지 빈도만 보고 정답을 찍을 수 없도록, 각 칸에서 정답 기호가 '혼자 가장 많이' 나오지 않게 한다.
-    const W = combos.map((c, i) => ({ val: c, why: null, out: outs[i] })).filter((w) => !(w.val[0] === a && w.val[1] === b) && S.dom.ok(w.out) && w.out !== x);
+    // 정답 쌍은 늘 서로 다른 두 기호이므로, 같은 기호를 두 번 쓴 오답 쌍은 '정답일 리 없는 선지'라는 단서가 된다. 쓰지 않는다.
+    const W = combos.map((c, i) => ({ val: c, why: null, out: outs[i] })).filter((w) => w.val[0] !== w.val[1] && !(w.val[0] === a && w.val[1] === b) && S.dom.ok(w.out) && w.out !== x);
     const cat = (w) => { const [p, q] = w.val; return p === b && q === a ? 'swap' : p === a ? 'sameA' : q === b ? 'sameB' : 'diff'; };
     const modeOk = (cols) => [0, 1].every((ci) => {
       const cnt = {}; cols.forEach((v) => { cnt[v[ci]] = (cnt[v[ci]] || 0) + 1; });
@@ -848,7 +917,7 @@ function buildReverse(ctx, { makeProg, require }) {
     }
     const validWrong = cands.filter((c) => !dom.same(c.val, Y) && !dom.same(run(S, prog, c.val).out, Y)); // 출력 자체가 아니고, 넣어 봐도 출력이 다른 것만
     const order = conds.length ? ['branch', 'order', 'nofinv', 'omit', 'errinv', 'fwd'] : ['order', 'nofinv', 'omit', 'fwd', 'errinv'];
-    const ds = pickDistractors(rng, validWrong, x, dom, order);
+    const ds = pickDistractors(rng, validWrong, x, dom, order, 4, conds.length ? (d) => d.some((u) => u.kind === 'branch') : null);
     if (ds.length < 4) continue;
     if (conds.length && !ds.some((d) => d.kind === 'branch')) continue; // 갈래를 잘못 고른 오답은 꼭 넣는다.
     const { vals, whys } = place(rng, x, ds, ctx.target);
@@ -928,7 +997,7 @@ function buildCompound(ctx) {
     if (outsA.filter((o) => dom.same(o, ra.out)).length !== 1) continue; // ㉠이 유일하게 정해져야 한다.
     const cands = S.tkeys.filter((k) => k !== h).map((k) => ({ kind: 'slot', val: run(S, progB, xb, { assign: { '㉠': k } }).out, why: `㉠을 ${J.ro(S.map[k].name)} 잘못 찾은` }));
     for (const c of forwardCands(S, progB, xb, { '㉠': h })) if (c.kind !== 'confuse') cands.push({ ...c, why: `(나)에서 ${c.why}` });
-    const ds = pickDistractors(rng, cands, rb.out, dom, ['slot', 'omit', 'swap', 'slot', 'err']);
+    const ds = pickDistractors(rng, cands, rb.out, dom, ['slot', 'omit', 'swap', 'slot', 'err'], 4, (d) => d.some((u) => u.kind === 'slot'));
     if (ds.length < 4) continue;
     if (ds.filter((d) => d.kind === 'slot').length < 1) continue;
     const { vals, whys } = place(rng, rb.out, ds, ctx.target);
@@ -1016,8 +1085,8 @@ function generateSet(S, seed) {
     };
     push(buildForward(at(0), { makeProg: lin(2) }));
     push(buildForward(at(1), { makeProg: lin(3) }));
-    push(buildForward(at(2), { makeProg: branch(1, 1, 1, () => E), require: withTrap('Y'), kindOrder: ['orig', 'flip', 'omit', 'err', 'swap', 'confuse'] }));
-    push(buildForward(at(3), { makeProg: branch(2, 1, 1, () => F), require: withTrap('N'), kindOrder: ['orig', 'flip', 'omit', 'err', 'swap', 'confuse'] }));
+    push(buildForward(at(2), { makeProg: branch(1, 1, 1, () => E), require: withTrap('Y'), kindOrder: ['orig', 'flip', 'omit', 'err', 'swap', 'confuse'], mustKinds: ['orig'] }));
+    push(buildForward(at(3), { makeProg: branch(2, 1, 1, () => F), require: withTrap('N'), kindOrder: ['orig', 'flip', 'omit', 'err', 'swap', 'confuse'], mustKinds: ['orig'] }));
     let r = buildMissingPair(at(4), { makeProg: () => { const k = k1(1)[0]; return P(['가', k, '나']); } });
     push(r, r.meta.pair);
     r = buildMissingPair(at(5), {
@@ -1035,6 +1104,7 @@ function generateSet(S, seed) {
       },
       require: (res, prog, x) => /^N[YN]$/.test(res.trace.filter((t) => t.t === 'C').map((t) => (t.res ? 'Y' : 'N')).join('')) && !STR.same(run(S, prog, x, { condOnOrig: true }).out, res.out),
       kindOrder: ['orig', 'flip', 'omit', 'err', 'swap', 'confuse'],
+      mustKinds: ['orig'],
     }));
   }
   results.forEach((r, i) => { r.item = { id: `S${S.no}-DI-${String(i + 1).padStart(2, '0')}`, ...r.item }; });

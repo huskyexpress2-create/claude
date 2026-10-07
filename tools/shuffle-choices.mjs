@@ -37,11 +37,29 @@ function load(file) {
   return JSON.parse(JSON.stringify(Object.values(set.sections)[0]));
 }
 
-const NUM_RE = /^[\s약]*-?[\d,.]+\s*(%p|%포인트|%|배|명|대|개|원|억 달러|억|만 원|만|천 대|천|톤|kWh|시간|분|일|위|번|곳|가지|건)?\s*$/;
+// 관례상 순서가 정해진 선지는 섞지 않는다: 오름·내림차순 숫자(단위 공통), 'ㄱ, ㄴ' 보기 조합,
+// 'A부스~E부스'·'갑~무'처럼 짧은 이름표가 정렬된 경우.
 const COMBO_RE = /^[ㄱ-ㅎ](,\s*[ㄱ-ㅎ])*$/;
+const NUM_RE = /^(약\s*)?(-?[\d,]*\.?\d+)\s*([^\d\s][^\d]{0,7})?$/;
+const GAP = '갑을병정무기경신임계';
+function sortedBy(keys, cmp) {
+  const asc = keys.every((k, i) => i === 0 || cmp(keys[i - 1], k) <= 0);
+  const desc = keys.every((k, i) => i === 0 || cmp(keys[i - 1], k) >= 0);
+  return asc || desc;
+}
 function fixedOrder(it) {
-  const ch = it.choices || [];
-  return ch.length > 0 && (ch.every((x) => NUM_RE.test(String(x).trim())) || ch.every((x) => COMBO_RE.test(String(x).trim())));
+  const ch = (it.choices || []).map((x) => String(x).trim());
+  if (!ch.length) return false;
+  if (ch.every((x) => COMBO_RE.test(x))) return true;
+  const nums = ch.map((x) => x.match(NUM_RE));
+  if (nums.every(Boolean) && new Set(nums.map((m) => (m[3] || '').trim())).size === 1) {
+    return sortedBy(nums.map((m) => parseFloat(m[2].replace(/,/g, ''))), (a, b) => a - b);
+  }
+  if (ch.every((x) => x.length <= 8)) {
+    if (ch.every((x) => GAP.includes(x[0])) && sortedBy(ch.map((x) => GAP.indexOf(x[0])), (a, b) => a - b)) return true;
+    if (sortedBy(ch, (a, b) => a.localeCompare(b, 'ko'))) return true;
+  }
+  return false;
 }
 
 /* 해설의 원문자 번호를 새 번호로 바꾸고 조사를 맞춘다. map[oldIdx] = newIdx (0 기반) */
@@ -54,12 +72,13 @@ function remapText(text, map) {
   });
   s = s.replace(/[①-⑤]/g, (c) => '\u0000' + CIRC.indexOf(c));
   // 자리표시자 → 새 번호 + 조사 보정
-  return s.replace(/\u0000(\d)(으로|로|은|는|을|를|과|와|이|가)?/g, (_, d, josa, off, whole) => {
+  // 번호와 조사 사이에 괄호 설명이 끼는 경우('①(제동→조향)과')도 조사를 맞춘다.
+  return s.replace(/\u0000(\d)(\([^()\u0000]*\))?(으로|로|은|는|을|를|과|와|이|가)?/g, (m, d, paren, josa, off, whole) => {
     const ni = map[+d];
-    const out = CIRC[ni];
+    const out = CIRC[ni] + (paren || '');
     if (!josa) return out;
     const b = BATCHIM[ni];
-    const rest = whole.slice(off + 2 + josa.length, off + 2 + josa.length + 2);
+    const rest = whole.slice(off + m.length, off + m.length + 2);
     switch (josa) {
       case '은': case '는': return out + (b ? '은' : '는');
       case '을': case '를': return out + (b ? '을' : '를');
@@ -92,9 +111,11 @@ function planSequence(items, rnd, others) {
     let ok = true;
     for (let i = 2; i < n && ok; i++) if (seq[i] === seq[i - 1] && seq[i] === seq[i - 2]) ok = false;
     if (!ok) continue;
-    const same = (a, b) => a.filter((x, i) => x === b[i]).length;
-    if (same(seq, items.map((it) => it.answer)) > Math.ceil(n * 0.35)) continue;
-    if (others.some((o) => same(seq, o) > Math.ceil(n * 0.3))) continue;
+    // 순서를 고정한 문항은 원래 정답 그대로이므로, 겹침은 움직일 수 있는 자리끼리만 센다.
+    const free = fixed.map((a, i) => (a ? -1 : i)).filter((i) => i >= 0);
+    const same = (a, b) => free.filter((i) => a[i] === b[i]).length;
+    if (same(seq, items.map((it) => it.answer)) > Math.ceil(free.length * 0.35)) continue;
+    if (others.some((o) => same(seq, o) > Math.ceil(free.length * 0.35))) continue;
     return seq;
   }
   throw new Error('정답 순서를 만들지 못함');

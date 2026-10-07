@@ -530,16 +530,17 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   await waitStage(page, 'intro');
   await page.click('[data-act="start-section"]');
   await waitStage(page, 'study');
+  const studyEnd = (await st(page)).sections[3].studyEndAt;
   await page.reload();
   await page.waitForSelector('[data-act="resume"]');
-  await page.clock.setSystemTime(new Date(Date.now() + 26 * 60000)); // 누적 39분 경과, 숙지 시작 후 약 17분
+  await page.clock.setSystemTime(new Date(studyEnd + 13 * 60000)); // 숙지 4분 + 문항 12분이 모두 지난 뒤(숙지 시작 후 17분)
   await page.click('[data-act="resume"]');
   await page.waitForTimeout(600);
   S = await st(page);
   const n = await pageNow(page);
   const secD = S.sections[3];
   const diag = S.stage === 'question' ? `문항 화면, 남은 ${Math.round((secD.endAt - n) / 1000)}초` : S.stage;
-  check(S.stage === 'complete' || (S.stage === 'question' && secD.endAt - n <= 0), `숙지 시작 후 약 17분 뒤 이어서 응시했는데 도식 영역이 끝나지 않음(${diag}). 숙지 종료 시점이 아니라 재개 시점부터 12분을 새로 줌`);
+  check(S.stage === 'complete' || (S.stage === 'question' && secD.endAt - n <= 0), `도식 숙지 중 이탈 후 숙지+문항 시간(16분)이 모두 지난 뒤 이어서 응시했는데 영역이 끝나지 않음(${diag}). 숙지 종료 시점이 아니라 재개 시점부터 12분을 새로 줌`);
 
   // 숙지 중 짧게 이탈: 숙지 종료 1분 뒤 돌아오면 문항 시간은 11분 남아야 함
   const { page: p2 } = await open();
@@ -548,14 +549,30 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   for (let i = 0; i < 3; i++) { await startSection(p2); await endSectionByModal(p2); await waitStage(p2, 'intro'); }
   await p2.click('[data-act="start-section"]');
   await waitStage(p2, 'study');
+  const studyEnd2 = (await st(p2)).sections[3].studyEndAt;
   await p2.reload();
   await p2.waitForSelector('[data-act="resume"]');
-  await p2.clock.setSystemTime(new Date(Date.now() + 5 * 60000));
+  await p2.clock.setSystemTime(new Date(studyEnd2 + 60000));
   await p2.click('[data-act="resume"]');
   await waitStage(p2, 'question');
   S = await st(p2);
   const left = S.sections[3].endAt - await pageNow(p2);
-  check(left < 11.2 * 60000, `숙지 종료 약 1분 뒤 복귀 시 도식 남은 시간 ${Math.round(left / 1000)}초(약 660초 기대). 이탈 시간이 문항 시간에서 빠지지 않음`);
+  check(left < 11.2 * 60000, `숙지 종료 1분 뒤 복귀 시 도식 남은 시간 ${Math.round(left / 1000)}초(약 660초 기대). 이탈 시간이 문항 시간에서 빠지지 않음`);
+
+  // 영역 안내 자동 시작(60초) 중 이탈: 자동 시작 시각 2분 뒤 복귀하면 언어이해 남은 시간은 18분이어야 함
+  const { page: p3 } = await open();
+  await setSettings(p3, { variant: 'H2', mode: 'practice', introTimer: 60 });
+  await startAptToIntro(p3, 3);
+  const introEnd = (await st(p3)).sections[0].introEndAt;
+  check(!!introEnd && /자동으로 시작/.test(await text(p3, '#intro-count')), '안내 화면 자동 시작 카운트다운 없음');
+  await p3.reload();
+  await p3.waitForSelector('[data-act="resume"]');
+  await p3.clock.setSystemTime(new Date(introEnd + 2 * 60000));
+  await p3.click('[data-act="resume"]');
+  await waitStage(p3, 'question');
+  S = await st(p3);
+  const left3 = S.sections[0].endAt - await pageNow(p3);
+  check(left3 < 18.2 * 60000, `안내 자동 시작 2분 뒤 복귀 시 언어이해 남은 시간 ${Math.round(left3 / 1000)}초(약 1080초 기대). 자동 시작 시각이 아니라 복귀 시각부터 20분을 줌`);
 });
 
 /* ================= 4) 인성검사 ================= */
@@ -633,6 +650,19 @@ scenario(4, '인성검사: 가/멀 상호배타, 페이지 완료 전 다음 비
   await lk(b6[0], 5); await lk(b6[1], 4);
   await page.click(sel(6, b6[0], 'near')); await page.click(sel(6, b6[1], 'far'));
   check(await isDisabled(page, '#pers-next'), '미완료 페이지에서 [다음 페이지]가 활성');
+
+  // 새로고침 → 이어서 응시: 같은 페이지·응답·가/멀·Ⅰ부 종료 시각 유지
+  const beforeP = await st(page);
+  await page.reload();
+  await page.waitForSelector('[data-act="resume"]');
+  check(/인성검사/.test(await text(page, '.notice.info')), '홈 이어서 응시 안내에 인성검사가 없음');
+  await page.click('[data-act="resume"]');
+  await waitStage(page, 'part');
+  S = await st(page);
+  check(S.part === 0 && S.page === 2, `인성 이어서 응시 위치 오류: ${S.part}부 ${S.page}페이지`);
+  check(JSON.stringify(S.answers) === JSON.stringify(beforeP.answers) && JSON.stringify(S.fc) === JSON.stringify(beforeP.fc), '인성 이어서 응시 후 응답/가멀이 다름');
+  check(S.partEndAt === beforeP.partEndAt, '인성 이어서 응시 후 Ⅰ부 종료 시각이 바뀜');
+  check(await hasClass(page, sel(6, b6[0], 'near'), 'on') && await hasClass(page, `[data-act="lk"][data-id="${b6[0]}"][data-v="5"]`, 'on'), '인성 이어서 응시 후 응답 표시가 화면에 복원되지 않음');
 
   // Ⅰ부 시간 만료 → Ⅱ부 안내
   await advance(page, 50 * 60000);
@@ -765,21 +795,44 @@ scenario(6, '390px 모바일 폭: 홈·문항·인성 화면 가로 스크롤 �
     const items = await page.evaluate(([k]) => { const p = window.HMAT.sets[1].sections[k]; return (Array.isArray(p) ? p : p.items).map((it) => ({ passage: !!(it.passage || (it.materials && it.materials.length)), charts: !!it.choiceCharts, svgs: !!it.choiceSvgs, table: !!(it.materials || []).find((m) => m.kind === 'table') })); }, [key]);
     const picks = new Set([0]);
     ['passage', 'charts', 'svgs', 'table'].forEach((f) => { const i = items.findIndex((x) => x[f]); if (i >= 0) picks.add(i); });
-    for (const i of picks) {
-      if (S.qIdx !== i) await page.click(`#palette button[data-q="${i}"]`).catch(() => page.evaluate((q) => document.querySelector(`#palette button[data-q="${q}"]`).click(), i));
+    for (const i of [...picks].sort((a, b) => a - b)) {
+      // 모바일에서 보이는 이동 수단은 [이전]/[다음]뿐이므로 그것으로 이동
+      for (let g = 0; g < 20 && (await st(page)).qIdx < i; g++) await page.click('[data-act="next"]');
       await probe(`${label} ${i + 1}번`);
+      if (i === 0) {
+        await page.click('#content .choice[data-choice="1"]');
+        check((await st(page)).sections[(await st(page)).secIdx].answers[S.sections[S.secIdx].ids[0]] === 1, `${label}: 390px에서 선지 터치로 답이 표시되지 않음`);
+      }
     }
   };
-  await startSection(page); await visit('verbal', '언어이해'); await endSectionByModal(page); await waitStage(page, 'intro');
-  await startSection(page); await visit('logic', '논리판단'); await endSectionByModal(page); await waitStage(page, 'intro');
-  await startSection(page); await visit('data', '정보추론'); await endSectionByModal(page); await waitStage(page, 'intro');
+  let navChecked = false;
+  const endSec = async (label) => {
+    const endVis = await page.locator('[data-act="end-section"]').isVisible();
+    if (!navChecked) {
+      navChecked = true;
+      check(endVis, '390px 폭 문항 화면에 [답안 제출(영역 종료)] 버튼이 보이지 않음 — 영역을 일찍 끝낼 방법이 없음');
+      const markVis = (await page.locator('#palette').isVisible()) || (await page.locator('.omr').isVisible());
+      check(markVis, '390px 폭 문항 화면에 문항 번호 팔레트·답안 표기란이 모두 숨겨짐 — 응답/미응답·검토 표시 확인과 번호 이동 불가');
+    }
+    if (endVis) {
+      await page.click('[data-act="end-section"]'); await modalText(page); await probe(`${label} 영역 종료 모달`); await modalClick(page, '제출하고 종료');
+    } else {
+      await advance(page, 25 * 60000);   // 우회: 시간 만료로 영역 종료
+      await waitFor(page, () => ['intro', 'complete'].includes(window.HMATApp.state().stage));
+      await modalText(page); await probe(`${label} 시간 종료 모달`); await modalClick(page, '확인');
+    }
+    await waitFor(page, () => ['intro', 'complete'].includes(window.HMATApp.state().stage));
+  };
+  await startSection(page); await visit('verbal', '언어이해'); await endSec('언어이해');
+  await startSection(page); await visit('logic', '논리판단'); await endSec('논리판단');
+  await startSection(page); await visit('data', '정보추론'); await endSec('정보추론');
   await page.click('[data-act="start-section"]'); await waitStage(page, 'study'); await probe('도식 숙지');
   await page.click('[data-act="skip-study"]'); await waitStage(page, 'question');
   await visit('diagram', '도식이해');
   await page.click('[data-act="rules-drawer"]'); await probe('도식 규칙표 패널'); await page.click('.drawer .dh button');
-  await endSectionByModal(page); await waitStage(page, 'intro');
+  await endSec('도식이해');
   await startSection(page); await visit('spatial', '공간지각');
-  await page.click('[data-act="end-section"]'); await modalText(page); await probe('영역 종료 모달'); await modalClick(page, '제출하고 종료');
+  await endSec('공간지각');
   await waitStage(page, 'complete');
   await page.check('#erase'); await page.click('#ck-next');
   await probe('적성 결과 요약');
