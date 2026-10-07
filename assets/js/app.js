@@ -844,12 +844,24 @@
     show(h);
   }
 
+  // 묶음마다 열 폭이 달라지지 않도록 고정 폭 열을 쓴다.
+  function colgroup(n, extra, yn) {
+    var h = '<colgroup><col class="c-stmt">';
+    for (var i = 0; i < n; i++) h += '<col class="' + (yn ? 'c-yn' : 'c-lk') + '">';
+    for (var j = 0; j < extra; j++) h += '<col class="c-fc">';
+    return h + '</colgroup>';
+  }
+  // 좁은 화면에서는 표 머리글이 숨겨지므로 척도 뜻을 따로 보여 준다.
+  function scaleLegend(labels) {
+    return '<div class="scale-legend">' + labels.map(function (l, i) { return (i + 1) + ' ' + l; }).join(' · ') + '</div>';
+  }
+
   function persBlockHtml(bi, texts, demo) {
     var lk = S.settings.likert, labels = scaleLabels(lk);
     var map = demo ? null : P.bankMap();
     var ids = demo ? texts.map(function (_, i) { return 'demo' + i; }) : S.parts.blocks[bi];
     var f = demo ? (S._demoFc || {}) : (S.fc[bi] || {});
-    var h = '<div class="pers-block"><div class="bh">' + (demo ? '예시 묶음' : '묶음 ' + (bi + 1)) + '</div><table class="pers-table"><thead><tr><th style="text-align:left;padding-left:12px">진술</th>';
+    var h = '<div class="pers-block"><div class="bh">' + (demo ? '예시 묶음' : '묶음 ' + (bi + 1)) + '</div>' + scaleLegend(labels) + '<table class="pers-table">' + colgroup(lk, 2) + '<thead><tr><th style="text-align:left;padding-left:12px">진술</th>';
     labels.forEach(function (l, i) { h += '<th>' + (i + 1) + (lk <= 5 || i === 0 || i === lk - 1 || i === 3 ? '<br>' + l : '') + '</th>'; });
     h += '<th class="sep">가깝다<br>(가)</th><th>멀다<br>(멀)</th></tr></thead><tbody>';
     ids.forEach(function (id, k) {
@@ -865,7 +877,7 @@
 
   function persPart2Html(ids, startNo) {
     var max = part2Max(S), labels = scaleLabels(max), map = P.bankMap();
-    var h = '<div class="pers-block"><table class="pers-table"><thead><tr><th style="text-align:left;padding-left:12px">문항</th>';
+    var h = '<div class="pers-block">' + (max === 2 ? '' : scaleLegend(labels)) + '<table class="pers-table' + (max === 2 ? ' yn-table' : '') + '">' + colgroup(max, 0, max === 2) + '<thead><tr><th style="text-align:left;padding-left:12px">문항</th>';
     labels.forEach(function (l, i) { h += '<th>' + (max === 2 ? '' : (i + 1) + '<br>') + l + '</th>'; });
     h += '</tr></thead><tbody>';
     ids.forEach(function (id, k) {

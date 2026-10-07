@@ -308,9 +308,13 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
 .pers-wrap { max-width: 1000px; margin: 0 auto; }
 .pers-block { background: #fff; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 14px; overflow: hidden; }
 .pers-block .bh { background: #f4f5f8; padding: 7px 12px; font-weight: 700; font-size: 13.5px; color: var(--ink-2); border-bottom: 1px solid var(--line); }
-.pers-table { width: 100%; border-collapse: collapse; }
+.pers-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.pers-table col.c-lk { width: 54px; }
+.pers-table col.c-fc { width: 58px; }
+.pers-table col.c-yn { width: 92px; }
+.scale-legend { display: none; }
 .pers-table th, .pers-table td { border-bottom: 1px solid var(--line-2); padding: 7px 6px; text-align: center; font-size: 13px; }
-.pers-table th { font-weight: 600; color: var(--ink-3); font-size: 11.5px; line-height: 1.25; }
+.pers-table th { font-weight: 600; color: var(--ink-3); font-size: 11px; line-height: 1.25; padding: 6px 1px; word-break: keep-all; }
 .pers-table td.stmt { text-align: left; font-size: 15px; padding-left: 12px; line-height: 1.5; }
 .pers-table td.stmt .no { font-weight: 700; color: var(--ink-3); margin-right: 6px; font-size: 13px; }
 .pers-table tr:last-child td { border-bottom: 0; }
@@ -382,7 +386,15 @@ table.info th { background: #f4f5f8; font-weight: 600; white-space: nowrap; }
   .review-item .rb > div + div { border-left: 0; border-top: 1px solid var(--line); }
   .mobile-banner { display: block; background: #fff3cd; color: #6b4e00; font-size: 12.5px; text-align: center; padding: 6px 10px; }
   .palette { display: none; }
-  .pers-table td.stmt { font-size: 14px; }
+  .pers-table, .pers-table tbody { display: block; }
+  .pers-table colgroup, .pers-table thead { display: none; }
+  .pers-table tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line-2); }
+  .pers-table td { display: block; border: 0; padding: 0; }
+  .pers-table td.stmt { flex: 1 0 100%; font-size: 14.5px; padding: 0 0 6px; }
+  .pers-table td.sep { margin-left: auto; border-left: 0; }
+  .pers-table.yn-table td:not(.stmt) { flex: 1 1 0; }
+  .pers-table.yn-table .yn { width: 100%; }
+  .scale-legend { display: block; font-size: 11.5px; color: var(--ink-3); padding: 6px 10px 0; }
   .profile-row { grid-template-columns: 90px 1fr 40px; }
 }
 @media (max-width: 560px) {
