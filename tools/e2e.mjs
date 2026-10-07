@@ -117,6 +117,11 @@ async function endSectionByModal(page) {
 /* 홈 → 적성 시작 → 첫 영역 안내까지 (연습 모드면 사전점검·감독 단계 없음) */
 async function startAptToIntro(page, set) {
   await page.click(`[data-act="start-apt"][data-set="${set}"]`);
+  await page.waitForFunction(() => { const S = window.HMATApp.state(); return (S && S.stage) || document.querySelector('.modal-back'); });
+  if (await page.locator('.modal-back', { hasText: '진행 중인 응시' }).count()) {
+    await modalClick(page, '새로 시작');
+    await page.waitForFunction(() => !!window.HMATApp.state());
+  }
   let S = await st(page);
   if (S.stage === 'precheck') { await page.click('[data-act="goto"][data-stage="checkin"]'); await page.click('[data-act="goto"][data-stage="info"]:has-text("건너뛰기")'); }
   await waitStage(page, 'info');
@@ -511,7 +516,7 @@ scenario(3, '새로고침 이어서 응시: 영역·답·남은 시간 연속, �
   before = await st(page);
   await page.reload();
   await page.waitForSelector('[data-act="resume"]');
-  await page.clock.setSystemTime(new Date(Date.now() + 13 * 60000));
+  await page.clock.setSystemTime(new Date(before.sections[1].endAt + 60000)); // 종료 시각 1분 뒤에 복귀
   await page.click('[data-act="resume"]');
   await waitStage(page, 'intro');
   S = await st(page);
@@ -735,9 +740,9 @@ scenario(5, '5영역 전체·상반기형 시작, 3개 회차 전 문항 렌더�
     check(/공간지각/.test(await text(page, '.section-intro h2')), `${set}회 상반기형 4번째 영역이 공간지각이 아님`);
     await startSection(page);
     check(await count(page, '#content .choice') === 5 && await count(page, '#content svg') > 0, `${set}회 공간지각 1번 렌더링 오류`);
-    await page.evaluate(() => { localStorage.removeItem('hmat-mock:session'); window.HMATApp.home(); });
+    // 진행 중인 채로 새로고침 → 다음 회차 시작 시 '새로 시작' 확인(startAptToIntro에서 처리)
     await page.reload();
-    await page.waitForSelector('.set-grid');
+    await page.waitForSelector('[data-act="resume"]');
   }
   check(errs.length === 0, '렌더링 중 페이지 오류');
 });
