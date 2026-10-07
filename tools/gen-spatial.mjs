@@ -538,9 +538,10 @@ function buildViewsToSolid(ctx, no, cfg, ansPos) {
 
 // ───────────────────── 2) 입체 → 투상도 ─────────────────────
 const VIEW_NAME = { front: '정면도', right: '우측면도', top: '평면도' };
-// 정면도·우측면도 문항의 읽기 쉬움 조건 : 정답을 정하는 기둥의 윗면은 온전히 보이고, 일부가 가려진 윗면은 1개까지,
+// 정면도·우측면도 문항의 읽기 쉬움 조건 : 정답을 정하는 기둥(열·줄마다 가장 높은 기둥)의 윗면은 온전히 보이고,
 // 빈칸은 바닥이 온전히 보이는 것만 2개까지 둔다(빈칸은 정면도·우측면도 답과 무관하고 그림만 복잡하게 만든다).
-const SIDE_READ = (view) => ({ critical: view, maxPartialTops: 1, fullFloor: true });
+// 일부가 가려진 윗면은 보통 문항에서는 허용하지 않고, 어려운 문항에서만 '앞쪽의 더 높은 기둥' 뒤에 1개까지 허용한다.
+const SIDE_READ = (view, hard) => ({ critical: view, maxPartialTops: hard ? 1 : 0, fullFloor: true });
 const SIDE_MAX_HOLES = 2;
 const ordList = (idx) => idx.map((i) => i + 1).join('·');
 function rowName(y, Y) { return y === 0 ? '맨 앞줄' : y === Y - 1 ? '맨 뒷줄' : `앞에서 ${y + 1}번째 줄`; }
@@ -553,13 +554,13 @@ function whereTallest(h, view) {
     for (let x = 0; x < X; x++) {
       const m = Math.max(...h.map((r) => r[x]));
       const ys = []; for (let y = 0; y < Y; y++) if (h[y][x] === m) ys.push(y);
-      parts.push(`${x + 1}열 ${ys.length === 1 ? rowName(ys[0], Y) : `앞에서 ${ordList(ys)}번째 줄`}(${m}층)`);
+      parts.push(`${x + 1}열 ${ys.length === Y ? '모든 줄' : ys.length === 1 ? rowName(ys[0], Y) : `앞에서 ${ordList(ys)}번째 줄`}(${m}층)`);
     }
   } else {
     for (let y = 0; y < Y; y++) {
       const m = Math.max(...h[y]);
       const xs = []; for (let x = 0; x < X; x++) if (h[y][x] === m) xs.push(x);
-      parts.push(`${rowName(y, Y)} ${xs.length === 1 ? colName(xs[0], X) : `왼쪽에서 ${ordList(xs)}번째 칸`}(${m}층)`);
+      parts.push(`${rowName(y, Y)} ${xs.length === X ? '모든 칸' : xs.length === 1 ? colName(xs[0], X) : `왼쪽에서 ${ordList(xs)}번째 칸`}(${m}층)`);
     }
   }
   return parts.join(', ');
@@ -573,7 +574,7 @@ function hiddenMaxLines(h, view) {
 }
 function buildSolidToView(ctx, no, cfg, ansPos) {
   const view = cfg.view;
-  const read = view === 'top' ? {} : SIDE_READ(view);
+  const read = view === 'top' ? {} : SIDE_READ(view, !!cfg.hard);
   for (let attempt = 0; attempt < 60; attempt++) {
     const rng = ctx.rng('s2v', no, attempt);
     let h;

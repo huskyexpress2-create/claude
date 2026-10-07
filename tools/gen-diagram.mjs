@@ -371,12 +371,12 @@ const pathCount = (trace) => trace.length; // 실제로 지나는 기호 수(변
 /* 흐름도 SVG                                                           */
 /* ------------------------------------------------------------------ */
 const GAP = 26, SYM_W = 40, SYM_R = 17, DIA_R = 23;
-const YN_SIZE = 15, YES_LEAD = 8; // Yes/No 글자 크기, Yes 글자가 다음 기호와 겹치지 않도록 마름모 뒤 화살표를 늘리는 길이
+const YN_SIZE = 16, YES_LEAD = 9; // Yes/No 글자 크기, Yes 글자가 다음 기호와 겹치지 않도록 마름모 뒤 화살표를 늘리는 길이
 
 function drawData(dom, spec, x, cy, label) {
   const { w, h } = dom.box;
   let s = '';
-  if (label) s += txt(x + w / 2, cy - h / 2 - 7, label, { size: 14, weight: 700, fill: SUB });
+  if (label) s += txt(x + w / 2, cy - h / 2 - 7, label, { size: 15, weight: 700, fill: SUB });
   if (spec.q) {
     s += `<rect x="${R1(x)}" y="${R1(cy - h / 2)}" width="${w}" height="${h}" rx="4" fill="#ffffff" stroke="${INK}" stroke-width="2"/>`;
     s += txt(x + w / 2, cy + 9, '?', { size: 26, weight: 700 });
@@ -470,10 +470,10 @@ const estTextW = (str, size) => [...str].reduce((w, c) => w + (/[가-힣]/.test(
 // 폭이 좁을수록 기호와 이름이 크게 보인다(데스크톱 5열·휴대폰 2열 모두 칸 폭 약 155px → 이름 약 15px, 기호 약 32px).
 // 한 문항의 다섯 선지가 같은 배율로 보이도록 viewBox는 회차의 가장 긴 기호 이름에 맞춰 고정한다.
 function pairChoiceSvg(S, a, b) {
-  const NAME = 15, nameX = 70;
+  const NAME = 15, nameX = 72;
   const W = nameX + Math.max(...S.tkeys.map((k) => estTextW(S.map[k].name, NAME))) + 6, H = 96;
-  const row = (cy, label, sym) => txt(4, cy + 5, label, { size: 14, weight: 700, fill: SUB, anchor: 'start' }) +
-    iconShape(sym, 47, cy, 16) + txt(nameX, cy + 5.5, sym.name, { size: NAME, weight: 700, anchor: 'start' });
+  const row = (cy, label, sym) => txt(3, cy + 5, label, { size: 13, weight: 700, fill: SUB, anchor: 'start' }) +
+    iconShape(sym, 50, cy, 16) + txt(nameX, cy + 5.5, sym.name, { size: NAME, weight: 700, anchor: 'start' });
   return svgDoc(W, H, row(25, '(가)', S.map[a]) +
     `<line x1="4" y1="48" x2="${R1(W - 4)}" y2="48" stroke="${INK}" stroke-width="1.5" stroke-dasharray="2 4"/>` +
     row(71, '(나)', S.map[b]));
@@ -820,11 +820,12 @@ function buildMissingPair(ctx, { makeProg, require }) {
     const outs = combos.map(([p, q]) => run(S, prog, x, { assign: { 가: p, 나: q } }).out);
     const hits = combos.filter((c, i) => outs[i] === res.out);
     if (hits.length !== 1) continue; // 16가지 조합 중 하나만 맞아야 한다.
-    // 오답 쌍 고르기: 순서를 바꾼 쌍 1개 + (가)만 같은 쌍 1개 + (나)만 같은 쌍 1개 + 둘 다 다른 쌍 1개.
+    // 오답 쌍 고르기: 순서를 바꾼 쌍(swap) 1개 + 서로 순서만 바뀐 '짝 쌍' 2개 + 나머지 1개((가)나 (나)가 정답과 같은 쌍 우선).
+    // swap만 넣으면 '뒤집은 쌍도 선지에 있는 선지'가 정답과 swap 둘뿐이라 둘 중 하나로 좁혀지므로 짝 쌍을 하나 더 넣는다.
     // 선지 빈도만 보고 정답을 찍을 수 없도록, 각 칸에서 정답 기호가 '혼자 가장 많이' 나오지 않게 한다.
-    // 정답 쌍은 늘 서로 다른 두 기호이므로, 같은 기호를 두 번 쓴 오답 쌍은 '정답일 리 없는 선지'라는 단서가 된다. 쓰지 않는다.
     const W = combos.map((c, i) => ({ val: c, why: null, out: outs[i] })).filter((w) => w.val[0] !== w.val[1] && !(w.val[0] === a && w.val[1] === b) && S.dom.ok(w.out) && w.out !== x);
     const cat = (w) => { const [p, q] = w.val; return p === b && q === a ? 'swap' : p === a ? 'sameA' : q === b ? 'sameB' : 'diff'; };
+    const rev = (u) => W.find((w) => w.val[0] === u.val[1] && w.val[1] === u.val[0]);
     const modeOk = (cols) => [0, 1].every((ci) => {
       const cnt = {}; cols.forEach((v) => { cnt[v[ci]] = (cnt[v[ci]] || 0) + 1; });
       const mine = cnt[[a, b][ci]];
@@ -833,13 +834,18 @@ function buildMissingPair(ctx, { makeProg, require }) {
     let picked = null;
     for (let t = 0; t < 400 && !picked; t++) {
       const pool = rng.shuffle(W);
+      const fresh = (sel, u) => !!u && !sel.includes(u) && u.out !== res.out && !sel.some((s2) => s2.out === u.out);
       const sel = [];
-      for (const want of ['swap', 'sameA', 'sameB', 'diff']) {
-        const w = pool.find((u) => cat(u) === want && !sel.includes(u) && !sel.some((s2) => s2.out === u.out));
-        if (w) sel.push(w);
-      }
-      for (const u of pool) { if (sel.length >= 4) break; if (!sel.includes(u) && cat(u) === 'diff' && !sel.some((s2) => s2.out === u.out)) sel.push(u); }
-      if (sel.length === 4 && modeOk([[a, b], ...sel.map((u) => u.val)])) picked = sel;
+      const sw = pool.find((u) => cat(u) === 'swap');
+      if (!sw) break;
+      sel.push(sw);
+      const p1 = pool.find((u) => cat(u) !== 'swap' && fresh(sel, u) && fresh([...sel, u], rev(u)));
+      if (!p1) break;
+      sel.push(p1, rev(p1));
+      const last = pool.find((u) => (cat(u) === 'sameA' || cat(u) === 'sameB') && fresh(sel, u)) || pool.find((u) => fresh(sel, u));
+      if (!last) continue;
+      sel.push(last);
+      if (modeOk([[a, b], ...sel.map((u) => u.val)])) picked = sel;
     }
     if (!picked) continue;
     const { vals } = place(rng, [a, b], picked, ctx.target);
@@ -1198,7 +1204,11 @@ function validatePayload(S, payload, gen) {
         const mine = cnt[m.pair[ci]];
         assert.ok(Object.entries(cnt).some(([k, n]) => k !== m.pair[ci] && n >= mine), `${it.id}: 선지 빈도로 정답이 드러남`);
       }
-      detail = `16개 조합 중 일치 ${hits}개, 선지 중 ${ch}개, 칸별 빈도 균형`;
+      assert.ok(m.vals.every(([p, q]) => p !== q), `${it.id}: 같은 기호 두 번인 선지(정답일 수 없음이 드러남)`);
+      const hasRev = m.vals.map(([p, q]) => m.vals.some(([r, t]) => r === q && t === p));
+      const sameGroup = hasRev.filter((h) => h === hasRev[it.answer - 1]).length;
+      assert.ok(sameGroup >= 3, `${it.id}: '뒤집은 쌍이 선지에 있는가'로 정답 후보가 ${sameGroup}개로 좁혀짐`);
+      detail = `16개 조합 중 일치 ${hits}개, 선지 중 ${ch}개, 칸별 빈도 균형, 뒤집은 쌍 ${hasRev.filter(Boolean).length}개`;
     } else if (m.type === 'reverse') {
       const hits = m.vals.filter((v) => dom.same(run(S, m.prog, v).out, m.out)).length;
       assert.equal(hits, 1); assert.ok(dom.same(run(S, m.prog, m.vals[it.answer - 1]).out, m.out));
@@ -1210,6 +1220,11 @@ function validatePayload(S, payload, gen) {
       const hits = m.vals.filter((v) => dom.same(v, out)).length;
       assert.equal(hits, 1); assert.ok(dom.same(m.vals[it.answer - 1], out));
       detail = `㉠ 후보 일치 ${hk.length}개, 선지 일치 ${hits}개`;
+    }
+    if (m.vals && m.type !== 'pair') {
+      const flags = testwiseFlags(dom, m.vals, it.answer - 1);
+      assert.deepEqual(flags, [], `${it.id}: 선지만 보고 정답이 드러남 — ${flags.join(', ')}`);
+      detail += ', 요령 검사 통과';
     }
     const sym = m.npath && m.npath !== m.nsym ? `기호 ${m.nsym}개(지나는 기호 ${m.npath}개)` : `기호 ${m.nsym}개`;
     return `  ${it.id} ${it.subtype.padEnd(8, ' ')} 정답 ${CIRC[it.answer - 1]}  ${sym.padEnd(18, ' ')}${m.path ? ` 갈래 ${m.path.split('').map((c) => (c === 'Y' ? 'Yes' : 'No')).join('→')}` : ''}  ✔ ${detail}`;
