@@ -86,3 +86,44 @@ def test_one_failing_source_does_not_abort():
     )
     assert any("kakao 검색 실패" in w for w in res.warnings)
     assert len(res.scored) == 3
+
+
+class FakeGoogleRef:
+    def __init__(self, refs):
+        self.refs = refs
+        self.calls = []
+
+    def reference_lookup(self, place, area):
+        from matjip.sources import GoogleRef
+
+        self.calls.append(place.name)
+        return [GoogleRef(name=n, rating=r, count=c, uri=f"https://maps.google.com/?cid={i}") for i, (n, r, c) in
+                enumerate(self.refs.get(place.name, []))]
+
+
+def test_google_reference_is_display_only():
+    http = HttpClient(transport)
+    google = FakeGoogleRef({"오븐집": [("오븐집", 4.9, 10), ("다른집", 3.0, 5)], "조용한빵집": [("전혀다른곳", 4.0, 1)]})
+    res = run_search(
+        SearchQuery(food="소금빵", area="성수동"),
+        [KakaoLocalSource("k", http), GooglePlacesSource("k", http, max_pages=1)],
+        google_reference=google,
+    )
+    by = {sp.place.name: sp for sp in res.scored}
+    assert by["오븐집"].google_ref.rating == 4.9
+    assert by["조용한빵집"].google_ref is None  # 이름이 다른 결과는 붙이지 않는다
+    assert res.google_used
+    text = render_text(res)
+    assert "[Google Maps] 4.9 (10)" in text and "maps.google.com/help/terms_maps" in text
+    # 한 가게가 여러 카테고리에 나와도 조회는 한 번
+    assert len(google.calls) == len(set(google.calls))
+
+
+def test_cli_google_key_alone_needs_scoring_flag(monkeypatch, capsys):
+    from matjip.cli import main
+
+    for k in ["KAKAO_REST_API_KEY", "NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET"]:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "x")
+    assert main(["소금빵", "--area", "성수동"]) == 2
+    assert "--google-scoring" in capsys.readouterr().err

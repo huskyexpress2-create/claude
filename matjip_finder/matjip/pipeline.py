@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Protocol
 
 from .config import ScoringConfig
-from .merge import merge_places
+from .merge import merge_places, name_similarity
 from .models import Place, ScoredPlace
 from .scoring import categorize, score_places
 from .sources import NaverSearchSource, SearchQuery
@@ -21,6 +21,7 @@ class SearchResult:
     scored: list[ScoredPlace]
     sources_used: list[str]
     warnings: list[str] = field(default_factory=list)
+    google_used: bool = False  # Google Maps 콘텐츠가 들어갔으면 출처·약관 안내를 붙인다
 
 
 class BrowserDriver(Protocol):
@@ -111,6 +112,7 @@ def run_search(
     browser_places: Optional[list[Place]] = None,
     browser_driver: Optional[BrowserDriver] = None,
     browser_max: int = 8,
+    google_reference=None,
 ) -> SearchResult:
     cfg = cfg or ScoringConfig()
     places, used, warnings = collect_candidates(
@@ -139,10 +141,38 @@ def run_search(
             f"순위 후보가 {n_ranked}곳뿐이라 점수(후보군 내 백분위)의 해상도가 낮습니다. "
             "'맛+분위기'의 '둘 다 중간 이상' 기준도 거칠게 적용됩니다."
         )
+    categories = categorize(scored, top=top, cfg=cfg)
+    google_used = "google" in used
+    if google_reference is not None:
+        google_used = annotate_google(categories, google_reference, query.area, warnings) or google_used
+        if google_used:
+            used.append("google_reference")
     return SearchResult(
         query=query,
-        categories=categorize(scored, top=top, cfg=cfg),
+        categories=categories,
         scored=scored,
         sources_used=used,
         warnings=warnings,
+        google_used=google_used,
     )
+
+
+def annotate_google(categories: dict[str, list[ScoredPlace]], source, area: str, warnings: list[str]) -> bool:
+    """최종 추천된 가게마다 Google Maps 평점을 '참고'로 붙인다(점수에는 쓰지 않음). 하나라도 붙으면 True."""
+    done: set[int] = set()
+    attached = False
+    for picks in categories.values():
+        for sp in picks:
+            if id(sp) in done:
+                continue
+            done.add(id(sp))
+            try:
+                refs = source.reference_lookup(sp.place, area)
+            except Exception as e:
+                warnings.append(f"Google Maps 참고 조회 실패: {e}")
+                return attached
+            best = max(refs, key=lambda r: name_similarity(r.name, sp.place.name), default=None)
+            if best is not None and name_similarity(best.name, sp.place.name) >= 0.85:
+                sp.google_ref = best
+                attached = True
+    return attached

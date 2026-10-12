@@ -147,11 +147,14 @@ def test_live_waiting_dominates():
 
 # ---- 계획 파일 / CLI ------------------------------------------------------------------
 def test_write_plan(tmp_path):
-    p = Place(name="오븐집", address="서울 성동구 1")
+    p = Place(name="오븐집", address="서울 성동구 1", sources={"kakao"})
     p.urls["kakao"] = "http://place.map.kakao.com/1"
-    tasks, prompt = write_plan(tmp_path / "b", SearchQuery("소금빵", "성수동"), [p], 8, ["--top", "1"])
+    g = Place(name="구글전용", sources={"google"})
+    tasks, prompt = write_plan(tmp_path / "b", SearchQuery("소금빵", "성수동"), [p, g], 8, ["--top", "1"])
     data = json.loads(tasks.read_text(encoding="utf-8"))
-    assert data["candidates"][0]["known_urls"]["kakao"].endswith("/1")
+    (c,) = data["candidates"]  # Google 단독 후보는 디스크에 쓰지 않는다
+    assert c["known_urls"]["kakao"].endswith("/1")
+    assert c["address"] == ""  # 카카오 API 주소도 저장하지 않는다
     text = prompt.read_text(encoding="utf-8")
     assert "로그인하지 않은" in text and "CAPTCHA" in text
     assert "--browser-results" in text and "--top 1" in text
@@ -210,5 +213,5 @@ def test_claude_analyzer_skips_naver_api_texts():
 
     p = Place(name="x", texts=[ReviewText("naver_blog", "a"), ReviewText("google_review", "b"),
                                ReviewText("naver_place_review", "c")])
-    assert [t.text for t in llm_texts(p)] == ["b", "c"]
+    assert [t.text for t in llm_texts(p)] == ["c"]
     assert PlatformRating  # import used

@@ -142,3 +142,4 @@ class ScoredPlace:
     confidence: str = "낮음"  # 전체 근거량 기반 신뢰도
     dish_relevance: Optional[float] = None
     notes: list[str] = field(default_factory=list)
+    google_ref: Optional[object] = None  # sources.google_places.GoogleRef, 표시 전용

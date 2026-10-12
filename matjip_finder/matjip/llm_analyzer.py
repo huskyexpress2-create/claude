@@ -66,13 +66,15 @@ SYSTEM = """당신은 한국 음식점·카페 리뷰를 측면별로 판정하�
 - 리뷰 수가 적거나 언급이 드문 측면은 0.5 쪽으로 보수적으로 매긴다."""
 
 
-# 네이버 검색 API 약관(2026-10-07 개정) 2.3: "데이터를 AI에 입력하거나 … 활용하는 행위" 금지.
-# 검색 API로 받은 블로그 요약문은 Claude로 보내지 않는다.
-LLM_EXCLUDED_SOURCES = {"naver_blog", "naver_blog_waiting"}
+# 허용 목록 방식: 사용자가 직접 넣은 글(manual)과 브라우저 모드로 읽은 플레이스 리뷰만 Claude로 보낸다.
+# - 네이버 검색 API 약관 2.3: 데이터를 AI에 입력하는 행위 금지 → naver_blog* 제외
+# - Google Maps Platform 약관 3.2.3(a)(c): 콘텐츠를 서비스 밖에서 쓰거나 콘텐츠 생성에 쓰는 행위 금지 → google 제외
+def llm_allowed(source: str) -> bool:
+    return source == "manual" or source.endswith("_place_review")
 
 
 def llm_texts(place: Place) -> list:
-    return [t for t in place.texts if t.source not in LLM_EXCLUDED_SOURCES]
+    return [t for t in place.texts if llm_allowed(t.source)]
 
 
 def _format_reviews(place: Place, food: str) -> tuple[str, int]:
@@ -133,7 +135,7 @@ class ClaudeAnalyzer:
         if allowed > n:
             notes.append(f"리뷰 {allowed}건 중 {n}건만 LLM에 전달")
         if len(place.texts) > allowed:
-            notes.append(f"네이버 검색 API 텍스트 {len(place.texts) - allowed}건은 약관상 LLM에 보내지 않음")
+            notes.append(f"API로 받은 텍스트 {len(place.texts) - allowed}건은 약관상 LLM에 보내지 않음")
         if notes:
             data["_note"] = "; ".join(notes)
         return data

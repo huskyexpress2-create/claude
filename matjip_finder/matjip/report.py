@@ -8,9 +8,10 @@ from typing import Optional
 from .models import ScoredPlace
 from .pipeline import SearchResult
 from .scoring import CATEGORY_TITLES
+from .sources import GOOGLE_TERMS_NOTICE
 
 PLATFORM_LABELS = {
-    "google": "구글",
+    "google": "Google Maps",  # Google 약관: 'Google Maps' 표기를 번역·변형하지 않는다
     "kakao": "카카오",
     "naver": "네이버",
     "catchtable": "캐치테이블",
@@ -67,6 +68,10 @@ def _place_block(rank: int, sp: ScoredPlace, md: bool) -> list[str]:
     ev = sp.analysis.taste.evidence[:2] + sp.analysis.mood.evidence[:1] + sp.analysis.waiting.evidence[:1]
     for e in dict.fromkeys(ev):  # 같은 글이 맛·분위기 근거로 중복될 수 있다
         lines.append(f"   > {e}")
+    ref = sp.google_ref
+    if ref is not None:
+        rating = f"{ref.rating:g}" if ref.rating is not None else "평점 없음"
+        lines.append(f"   [Google Maps] {rating} ({ref.count:,}) {ref.uri}")
     for key in ("naver_place", "kakao", "naver", "google", "manual"):
         if p.urls.get(key):
             lines.append(f"   {p.urls[key]}")
@@ -103,6 +108,8 @@ def render_text(res: SearchResult, md: bool = False) -> str:
     out.append("")
     out.append("## 해석 시 주의" if md else "[해석 시 주의]")
     out.extend(f"- {c}" for c in CAVEATS)
+    if res.google_used:
+        out.append(f"- {GOOGLE_TERMS_NOTICE}")
     return "\n".join(out)
 
 
@@ -143,6 +150,9 @@ def _sp_dict(sp: ScoredPlace) -> dict:
             "waiting": sp.analysis.waiting.evidence,
         },
         "notes": sp.notes,
+        "google_maps_reference": None
+        if sp.google_ref is None
+        else {"rating": sp.google_ref.rating, "count": sp.google_ref.count, "uri": sp.google_ref.uri},
     }
 
 
@@ -157,7 +167,7 @@ def render_json(res: SearchResult) -> str:
             },
             "all_candidates": [_sp_dict(sp) for sp in res.scored],
             "warnings": res.warnings,
-            "caveats": CAVEATS,
+            "caveats": CAVEATS + ([GOOGLE_TERMS_NOTICE] if res.google_used else []),
         },
         ensure_ascii=False,
         indent=2,

@@ -53,10 +53,10 @@ def test_google_places_parse_and_pagination():
     places = GooglePlacesSource("KEY", HttpClient(t)).discover(Q)
     assert [p.name for p in places] == ["빵집", "카페"]
     assert places[0].rating_for("google").count == 1234
-    assert places[0].texts[0].text == "소금빵 맛있어요"  # 번역본이 아니라 원문
+    assert places[0].texts == []  # 약관상 리뷰 본문은 받지도 분석하지도 않는다
     _, _, headers, body = t.calls[0]
     assert headers["X-Goog-Api-Key"] == "KEY"
-    assert "places.reviews" in headers["X-Goog-FieldMask"]
+    assert "places.reviews" not in headers["X-Goog-FieldMask"]
     assert body["textQuery"] == "성수동 소금빵"
     assert t.calls[1][3]["pageToken"] == "tok"
 

@@ -16,8 +16,9 @@ from .sources import GooglePlacesSource, KakaoLocalSource, ManualSource, NaverSe
 BROWSER_MAX_HARD = 15
 
 ENV_HELP = """API 키 (가진 것만 설정하면 해당 소스만 사용):
-  GOOGLE_MAPS_API_KEY                     Google Places API (New)
-  KAKAO_REST_API_KEY                      카카오 로컬 API (후보 찾기·카카오맵 주소)
+  KAKAO_REST_API_KEY                      카카오 로컬 API: 후보 찾기·카카오맵 주소 (권장)
+  GOOGLE_MAPS_API_KEY                     Google Places API (New): 기본은 추천 결과 옆에 Google Maps 평점을
+                                          '참고'로만 표시. --google-scoring을 주면 점수에도 반영(약관 회색지대)
   NAVER_CLIENT_ID / NAVER_CLIENT_SECRET   네이버 검색 API. 약관상 결과 재가공·AI 입력이 금지라
                                           기본으로 쓰지 않음. --sources에 naver를 직접 적을 때만 사용
   ANTHROPIC_API_KEY                       --analyzer claude 사용 시
@@ -27,6 +28,11 @@ ENV_HELP = """API 키 (가진 것만 설정하면 해당 소스만 사용):
   --browser-plan DIR          Claude 데스크톱 앱/Claude in Chrome이 따라 할 작업 파일을 만들고 종료
   --browser-results FILE      위 두 방식의 결과 JSON을 반영
 네이버·카카오 약관은 자동화된 수집을 금지합니다. 사용 책임은 사용자에게 있습니다 (README 참고)."""
+
+GOOGLE_SCORING_WARNING = (
+    "경고: Google Maps Platform 약관 3.2.3(c)(g)는 Google 콘텐츠로 새 콘텐츠를 만들거나 검색 결과를 바꾸는 것을 "
+    "금지합니다. --google-scoring은 Google 평점을 다른 소스와 섞어 순위를 매기므로 약관과 충돌할 소지가 있습니다."
+)
 
 NAVER_API_WARNING = (
     "경고: 네이버 검색 API 약관(2026-10-07 개정)은 결과를 가공·재정렬하거나 AI에 입력하는 것을 금지합니다. "
@@ -59,6 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-dish-filter", action="store_true", help="요청 메뉴 언급이 없는 가게도 순위에 포함")
     ap.add_argument("--format", choices=["text", "markdown", "json"], default="text")
     ap.add_argument("--demo", action="store_true", help="API 없이 내장 가상 데이터로 실행 (소금빵)")
+    ap.add_argument(
+        "--google-scoring", action="store_true",
+        help="Google 평점을 후보 발굴과 점수에 반영 (기본은 참고 표시만. 약관 회색지대)",
+    )
 
     b = ap.add_argument_group("브라우저 모드")
     b.add_argument("--browser", choices=["playwright"], help="이 PC에서 브라우저로 공개 페이지를 읽어 반영")
@@ -97,6 +107,8 @@ def _rerun_args(args: argparse.Namespace) -> list[str]:
         out += ["--max-candidates", str(args.max_candidates)]
     if args.no_dish_filter:
         out.append("--no-dish-filter")
+    if args.google_scoring:
+        out.append("--google-scoring")
     if args.format != "text":
         out += ["--format", args.format]
     return out
@@ -137,8 +149,14 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     discovery: list = []
     naver: Optional[NaverSearchSource] = None
+    google_ref: Optional[GooglePlacesSource] = None
     if use("google") and env.get("GOOGLE_MAPS_API_KEY"):
-        discovery.append(GooglePlacesSource(env["GOOGLE_MAPS_API_KEY"], http))
+        google = GooglePlacesSource(env["GOOGLE_MAPS_API_KEY"], http)
+        if args.google_scoring:
+            print(GOOGLE_SCORING_WARNING, file=sys.stderr)
+            discovery.append(google)
+        else:
+            google_ref = google
     if use("kakao") and env.get("KAKAO_REST_API_KEY"):
         discovery.append(KakaoLocalSource(env["KAKAO_REST_API_KEY"], http))
     if use("naver") and env.get("NAVER_CLIENT_ID") and env.get("NAVER_CLIENT_SECRET"):
@@ -148,7 +166,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.manual:
         discovery.append(ManualSource(args.manual))
     if explicit is not None:
-        missing = [s for s in sorted(explicit) if s not in {d.name for d in discovery} | {"manual"}]
+        have = {d.name for d in discovery} | {"manual"} | ({"google"} if google_ref else set())
+        missing = [s for s in sorted(explicit) if s not in have]
         if missing:
             print(f"경고: 키가 없어 건너뜀: {', '.join(missing)}", file=sys.stderr)
 
@@ -167,8 +186,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             extra_warnings += ws
 
     if not discovery and not browser_places and not args.browser and not args.browser_plan:
+        hint = (
+            "Google 키만으로는 후보를 찾지 않습니다(기본은 참고 표시). 카카오 키, 브라우저 모드, "
+            "--google-scoring 중 하나가 필요합니다.\n" if google_ref else ""
+        )
         print(
-            "오류: 사용할 데이터가 없습니다.\n" + ENV_HELP + "\n또는 --manual CSV, --demo를 쓰세요.",
+            "오류: 사용할 데이터가 없습니다.\n" + hint + ENV_HELP + "\n또는 --manual CSV, --demo를 쓰세요.",
             file=sys.stderr,
         )
         return 2
@@ -223,6 +246,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         browser_places=browser_places,
         browser_driver=driver,
         browser_max=browser_max,
+        google_reference=google_ref,
     )
     result.warnings[:0] = extra_warnings
     if driver is not None and args.save_browser_results:

@@ -19,9 +19,11 @@ from .observations import SCHEMA_VERSION, now_iso
 RESULTS_NAME = "browser_results.json"
 
 RULES = [
-    "네이버·카카오에 로그인하지 않은 브라우저(Claude 데스크톱 앱 내장 브라우저 권장)로만 본다.",
-    "화면에 보이는 정보만 읽는다. 개발자 도구, 페이지 JavaScript 실행, 내부 API 호출, 네트워크 요청 재현으로 값을 꺼내지 않는다.",
-    "페이지를 열 때마다 5~8초 기다린다. 후보 수를 넘겨서 더 보지 않는다.",
+    "네이버·카카오에 로그인하지 않은 브라우저로만 본다 (Claude in Chrome은 네이버·카카오에 로그인하지 않은 별도 Chrome 프로필,"
+    " 또는 Claude 데스크톱 앱 내장 브라우저).",
+    "화면에 보이는 정보만 읽는다. 페이지 JavaScript 실행(javascript_tool), 네트워크 요청 읽기(read_network_requests),"
+    " 내부 API 호출·재현으로 값을 꺼내지 않는다. 여러 동작을 한 번에 묶어 실행하지 않는다(browser_batch 금지).",
+    "페이지를 열 때마다 5~8초 기다린다(computer 도구의 wait 동작 사용). 후보 수를 넘겨서 더 보지 않는다.",
     "CAPTCHA, '자동입력 방지', '비정상적인 접근', '과도한 요청', 로그인 요구가 나오면 즉시 멈추고"
     " 그때까지의 결과만 저장한다. 우회하지 않는다.",
     "리뷰 작성자 닉네임·프로필·사진은 적지 않는다. 리뷰 본문만, 사이트당 최대 10개.",
@@ -69,8 +71,11 @@ EXAMPLE_PLACE = {
 
 
 def _candidate_dict(i: int, p: Place) -> dict:
-    urls = {k: v for k, v in p.urls.items() if k in ("kakao", "naver_place", "google")}
-    return {"candidate_id": f"c{i}", "name": p.name, "address": p.address, "known_urls": urls}
+    # 카카오 로컬 API 데이터는 장소 id·URL·이름 외에는 저장할 수 없다(운영정책 제5조 20·30호, DevTalk 답변).
+    # 그래서 디스크에 쓰는 tasks.json에는 주소·좌표를 넣지 않는다. 사용자가 직접 넣은 주소(manual)만 예외.
+    urls = {k: v for k, v in p.urls.items() if k in ("kakao", "naver_place")}
+    address = p.address if p.sources & {"manual", "browser"} else ""
+    return {"candidate_id": f"c{i}", "name": p.name, "address": address, "known_urls": urls}
 
 
 def write_plan(
@@ -79,7 +84,9 @@ def write_plan(
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     results_path = out / RESULTS_NAME
-    candidates = [_candidate_dict(i, p) for i, p in enumerate(targets[:limit], 1)]
+    # Google 단독 후보는 넣지 않는다: Google 약관 3.2.3(a)(iii)이 업체명·주소를 복사·저장하는 것을 금지한다.
+    usable = [p for p in targets if p.sources - {"google"}]
+    candidates = [_candidate_dict(i, p) for i, p in enumerate(usable[:limit], 1)]
     tasks = {
         "version": SCHEMA_VERSION,
         "created_at": now_iso(),
@@ -141,12 +148,18 @@ def render_prompt(query: SearchQuery, candidates: list[dict], limit: int, result
 {cand_lines}
 
 ## 가게마다 할 일
-1. 네이버 플레이스: m.place.naver.com 또는 map.naver.com에서 "{query.area} <가게명>"으로 찾아 해당 가게 페이지를 연다.
-   - 홈/리뷰 탭에서 다음을 읽는다: 평균 별점(보일 때만), 방문자 리뷰 수, 블로그 리뷰 수,
+1. 네이버 플레이스: `https://m.place.naver.com/restaurant/list?query=<지역 가게명>` 목록에서 이름이 같은 가게를 골라
+   `https://m.place.naver.com/restaurant/<id>/review/visitor` 를 연다. map.naver.com은 쓰지 않는다(iframe 구조라 읽기 어렵고
+   내장 브라우저에서 막힌다는 보고가 있다). 페이지가 열리지 않거나 거부되면 네이버는 건너뛴다.
+   - 페이지 텍스트(get_page_text)가 본문 일부만 줄 수 있으니 read_page(filter: all)로 한 번 대조한다.
+   - 이 페이지에서 다음을 읽는다: 평균 별점(머리말에 '별점' 다음 숫자가 보일 때만. 리뷰 카드 안의 별점은 가게 별점이 아니다),
+     방문자 리뷰 수, 블로그 리뷰 수,
      "이런 점이 좋았어요" 키워드와 각 숫자(보이는 만큼),
      방문자 리뷰 본문 최대 10개, 각 리뷰의 "대기 시간" 값(예: 바로 입장, 10분 이내, 30분 이상)을 세어 wait_tags에 합계로 적는다.
-2. 카카오맵: 후보에 카카오 주소가 있으면 그 페이지를, 없으면 카카오맵에서 검색해 연다.
-   - 평균 별점, 후기 수, 블로그 리뷰 수, 추천 포인트(맛·분위기 등)와 숫자, 화면에 보이는 후기 본문.
+2. 카카오맵: 후보에 카카오 주소가 있으면 `https://place.map.kakao.com/<id>` 를, 없으면 카카오맵에서 검색해 연다.
+   - 머리말(장소명~탭 줄)의 평균 별점과 '후기 N', '블로그 N', 추천 포인트(맛·가성비·친절·분위기·주차 'N명'),
+     화면에 보이는 후기 본문. 페이지 아래 '이 지역 친구공유 랭킹'의 별점·후기 수는 다른 가게 것이니 쓰지 않는다.
+   - 리뷰 카드의 '후기 N / 별점평균 X.X / 팔로워 N'은 리뷰어 개인 통계라 쓰지 않는다.
 3. (선택) 캐치테이블·테이블링 가게 페이지에 "현재 대기 N팀"이 로그인 없이 화면에 보이면
    site를 "catchtable" 또는 "tabling"으로 한 관측값에 live_waiting_teams와 observed_at(지금 시각)을 적는다.
 4. 각 사이트 사이, 각 페이지 이동 사이에 5~8초 기다린다.
