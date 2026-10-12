@@ -1,0 +1,2 @@
+name,address,lat,lng,kakao_rating,kakao_count,naver_rating,naver_count,catchtable_rating,catchtable_count,diningcode_rating,taste_votes,mood_votes,keyword_review_total,waiting_minutes,reservable,awards,reviews
+(예시) 가게이름,서울 OO구 OO로 12,,,4.5,1203,4.6,3000,,,,1800,400,2500,30,false,블루리본 1,리뷰 원문 1|리뷰 원문 2
