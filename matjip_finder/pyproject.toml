@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matjip"
+version = "0.1.0"
+description = "여러 평점·리뷰 소스를 합쳐 음식/디저트 맛집을 4개 카테고리로 추천하는 CLI"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+claude = ["anthropic>=1.13"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+matjip = "matjip.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["matjip*"]
+
+[tool.setuptools.package-data]
+matjip = ["data/*.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
