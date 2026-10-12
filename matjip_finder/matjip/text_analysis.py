@@ -35,7 +35,8 @@ _CLAUSE_SPLIT = re.compile(
 _MOOD_MATJIP = re.compile(r"(뷰|사진|분위기|인테리어|감성|야경|포토)\s?맛집")
 
 TASTE_NOUN = re.compile(
-    r"맛|음식|요리|메뉴|빵(?!집)|디저트|케이크|케잌|커피|음료|라떼|식감|풍미|육즙|소스|국물|고기|크림|반죽|재료|간도|간이 딱|간이 잘"
+    r"맛|음식|요리|메뉴|빵(?!집)|디저트|케이크|케잌|커피|음료|라떼|식감|풍미|육즙|소스|국물|고기|크림|반죽|재료|"
+    r"간도|간이 딱|간이 잘"
 )
 MOOD_NOUN = re.compile(
     r"분위기|인테리어|감성|뷰|전망|야경|조명|음악|공간|매장|테라스|루프탑|정원|창가|채광|외관|건물|포토존|사진|좌석|MOOD_PRAISE"
@@ -156,7 +157,9 @@ def _extract_minutes(clause: str) -> list[float]:
 
 
 def text_weight(t: ReviewText) -> float:
-    w = SOURCE_WEIGHTS.get(t.source, 0.6)
+    # 플레이스 방문자 리뷰(브라우저 수집)는 영수증 인증 등이 붙은 실제 방문 후기라 1.0
+    default = 1.0 if t.source.endswith("_place_review") else 0.6
+    w = SOURCE_WEIGHTS.get(t.source, default)
     return w * (SPONSORED_FACTOR if t.sponsored else 1.0)
 
 

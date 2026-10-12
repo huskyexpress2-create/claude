@@ -81,7 +81,16 @@ def _merge_into(dst: Place, src: Place) -> None:
         if v is not None:
             cur = getattr(dst, attr)
             setattr(dst, attr, v if cur is None else max(cur, v))
-    dst.keyword_votes.update(src.keyword_votes)
+    for plat, vs in src.vote_stats.items():
+        dst.vote_stats.setdefault(plat, vs)
+    for plat, kc in src.keyword_counts.items():
+        dst.keyword_counts.setdefault(plat, kc)
+    for tag, n in src.wait_tags.items():
+        dst.wait_tags[tag] = dst.wait_tags.get(tag, 0) + n
+    if src.live_waiting is not None and (
+        dst.live_waiting is None or src.live_waiting.observed_at > dst.live_waiting.observed_at
+    ):
+        dst.live_waiting = src.live_waiting
     if src.waiting_minutes is not None:
         dst.waiting_minutes = src.waiting_minutes
     if dst.reservable is None:

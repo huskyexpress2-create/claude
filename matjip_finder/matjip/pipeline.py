@@ -1,10 +1,10 @@
-"""검색 → 병합 → 보강 → 텍스트 분석 → 점수 → 카테고리."""
+"""검색 → 병합 → (네이버 블로그 보강) → (브라우저 수집) → 텍스트 분석 → 점수 → 카테고리."""
 
 from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Protocol
 
 from .config import ScoringConfig
 from .merge import merge_places
@@ -23,21 +23,27 @@ class SearchResult:
     warnings: list[str] = field(default_factory=list)
 
 
+class BrowserDriver(Protocol):
+    """브라우저로 공개 페이지를 읽어 Place(관측값)를 돌려준다. targets가 비면 스스로 후보를 찾는다."""
+
+    name: str
+
+    def collect(self, query: SearchQuery, targets: list[Place], limit: int) -> tuple[list[Place], list[str]]:
+        ...
+
+
 def _log(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
-def run_search(
+def collect_candidates(
     query: SearchQuery,
     discovery_sources: list,
-    naver: Optional[NaverSearchSource] = None,
-    analyzer=None,
+    extra_places: Optional[list[Place]] = None,
     max_candidates: int = 30,
-    top: int = 3,
-    cfg: Optional[ScoringConfig] = None,
-    dish_filter: bool = True,
-) -> SearchResult:
-    cfg = cfg or ScoringConfig()
+    naver: Optional[NaverSearchSource] = None,
+) -> tuple[list[Place], list[str], list[str]]:
+    """API·수동 입력·브라우저 결과 파일에서 후보를 모아 병합한다. (places, sources_used, warnings)"""
     warnings: list[str] = []
     groups: list[list[Place]] = []
     used: list[str] = []
@@ -50,6 +56,9 @@ def run_search(
         _log(f"[{src.name}] 후보 {len(found)}곳")
         groups.append(found)
         used.append(src.name)
+    if extra_places:
+        groups.append(extra_places)
+        used.append("browser_results")
 
     places = merge_places(groups)
     # 여러 소스에 동시에 잡힌 곳, 평점 수가 많은 곳을 우선 보강한다(API 호출량 절약).
@@ -65,6 +74,57 @@ def run_search(
             except Exception as e:
                 warnings.append(f"네이버 블로그 보강 실패({p.name}): {e}")
         used.append("naver_blog")
+    return places, used, warnings
+
+
+def select_browser_targets(
+    places: list[Place], query: SearchQuery, n: int, cfg: Optional[ScoringConfig] = None, dish_filter: bool = True
+) -> list[Place]:
+    """브라우저로 자세히 볼 상위 n곳. API 데이터로 1차 점수를 매겨 맛 점수 순으로 고르고,
+    점수를 못 매긴 곳(평점·리뷰가 없는 카카오 단독 후보 등)은 뒤에 채운다."""
+    if n <= 0 or not places:
+        return []
+    analyses = [analyze_place(p, query.food) for p in places]
+    scored = score_places(places, analyses, query.food, cfg, dish_filter=dish_filter)
+    ranked = sorted(
+        (sp for sp in scored if sp.taste_score is not None), key=lambda sp: sp.taste_score or 0, reverse=True
+    )
+    picked = [sp.place for sp in ranked[:n]]
+    # 메뉴 무관으로 제외된 곳은 채우지 않는다. 근거 부족으로 제외된 곳만 원래 순서대로 채운다.
+    for sp in scored:
+        if len(picked) >= n:
+            break
+        if sp.taste_score is None and sp.place not in picked and any("근거 부족" in note for note in sp.notes):
+            picked.append(sp.place)
+    return picked
+
+
+def run_search(
+    query: SearchQuery,
+    discovery_sources: list,
+    naver: Optional[NaverSearchSource] = None,
+    analyzer=None,
+    max_candidates: int = 30,
+    top: int = 3,
+    cfg: Optional[ScoringConfig] = None,
+    dish_filter: bool = True,
+    browser_places: Optional[list[Place]] = None,
+    browser_driver: Optional[BrowserDriver] = None,
+    browser_max: int = 8,
+) -> SearchResult:
+    cfg = cfg or ScoringConfig()
+    places, used, warnings = collect_candidates(
+        query, discovery_sources, extra_places=browser_places, max_candidates=max_candidates, naver=naver
+    )
+
+    if browser_driver is not None:
+        targets = select_browser_targets(places, query, browser_max, cfg, dish_filter)
+        _log(f"[{browser_driver.name}] 브라우저로 {len(targets) or '직접 찾은'}곳 확인 시작 (최대 {browser_max}곳)")
+        observed, bw = browser_driver.collect(query, targets, browser_max)
+        warnings.extend(bw)
+        if observed:
+            places = merge_places([places, observed])
+            used.append(f"browser:{browser_driver.name}")
 
     analyses = [analyze_place(p, query.food) for p in places]
     if analyzer is not None:

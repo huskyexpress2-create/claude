@@ -34,7 +34,7 @@ def test_no_sources(monkeypatch, capsys):
     for k in ["GOOGLE_MAPS_API_KEY", "KAKAO_REST_API_KEY", "NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET"]:
         monkeypatch.delenv(k, raising=False)
     assert main(["소금빵", "--area", "성수동"]) == 2
-    assert "데이터 소스가 없습니다" in capsys.readouterr().err
+    assert "사용할 데이터가 없습니다" in capsys.readouterr().err
 
 
 # ---- Claude 분석기 (가짜 클라이언트) ------------------------------------------

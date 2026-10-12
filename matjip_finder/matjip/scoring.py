@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import math
+import re
 import statistics
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence, TypeVar
@@ -107,11 +108,9 @@ def _pool_positivity(results: Sequence[AspectResult]) -> float:
 
 
 def _vote_rate(place: Place, key: str) -> Optional[float]:
-    total = place.keyword_votes.get("keyword_review_total")
-    v = place.keyword_votes.get(key)
-    if not total or v is None:
-        return None
-    return v / total
+    """플랫폼별 득표율("음식이 맛있어요" 득표 / 리뷰 수)의 평균. 분모가 플랫폼마다 달라 합산하지 않는다."""
+    rates = [r for vs in place.vote_stats.values() if (r := vs.rate(key)) is not None]
+    return statistics.fmean(rates) if rates else None
 
 
 # ---- 웨이팅 ---------------------------------------------------------------------
@@ -132,7 +131,22 @@ def estimate_waiting(
 
     w = analysis.waiting
     comps: dict[str, Optional[float]] = {}
+    weights = dict(cfg.wait_component_weights)
     basis: list[str] = []
+    if place.live_waiting is not None:
+        lw = place.live_waiting
+        comps["live"] = live_teams_to_index(lw.teams)
+        when = f" ({lw.observed_at} 기준)" if lw.observed_at else ""
+        basis.append(f"실시간 대기 {lw.teams}팀{when}, 출처 {lw.source}")
+    tag_mean, n_tags = wait_tag_minutes(place.wait_tags)
+    if tag_mean is not None:
+        comps["tags"] = minutes_to_index(tag_mean, cfg)
+        # 태그 수가 적으면 한두 건에 휘둘리므로 가중치를 줄인다.
+        weights["tags"] = cfg.wait_tag_weight * n_tags / (n_tags + cfg.wait_tag_prior)
+        long_n = sum(n for t, n in place.wait_tags.items() if (m := tag_to_minutes(t)) is not None and m >= 30)
+        basis.append(
+            f"방문자 리뷰 대기시간 태그 {n_tags}건: 평균 약 {tag_mean:.0f}분, 30분 이상 {long_n / n_tags:.0%}"
+        )
     if w.llm_level in _LLM_WAIT_INDEX:
         comps["rate"] = comps["direction"] = _LLM_WAIT_INDEX[w.llm_level]
         basis.append(f"LLM 판정 {w.llm_level}")
@@ -158,18 +172,66 @@ def estimate_waiting(
     if popularity_pct is not None:
         comps["popularity"] = popularity_pct
 
-    idx = weighted_mean(comps, cfg.wait_component_weights)
+    idx = weighted_mean(comps, weights)
     assert idx is not None
 
     mentions = w.dir_long + w.dir_short
     has_blog = "blog" in comps
-    if mentions >= 4 and has_blog:
+    if "live" in comps or n_tags >= 20 or (mentions >= 4 and has_blog):
         conf = "높음"
-    elif mentions >= 2 or (has_blog and (place.blog_total or 0) >= 50) or w.llm_level in _LLM_WAIT_INDEX:
+    elif (
+        n_tags >= 8
+        or mentions >= 2
+        or (has_blog and (place.blog_total or 0) >= 50)
+        or w.llm_level in _LLM_WAIT_INDEX
+    ):
         conf = "중간"
     else:
         conf = "낮음"
     return WaitingEstimate(idx, _wait_level(idx, cfg), conf, basis)
+
+
+# 네이버 방문자 리뷰 '대기 시간' 태그 → 대표 분. 2026년 관측값 기준 (공식 목록은 공개되지 않음).
+WAIT_TAG_MINUTES = {
+    "바로 입장": 0.0,
+    "10분 이내": 5.0,
+    "30분 이내": 20.0,
+    "30분 이상": 45.0,
+    "1시간 이내": 40.0,
+    "1시간 이상": 80.0,
+    "2시간 이상": 140.0,
+}
+_TAG_RE = re.compile(r"(\d+)\s*(분|시간)\s*(이내|이상)")
+
+
+def tag_to_minutes(tag: str) -> Optional[float]:
+    tag = re.sub(r"\s+", " ", tag.strip())
+    if tag in WAIT_TAG_MINUTES:
+        return WAIT_TAG_MINUTES[tag]
+    m = _TAG_RE.search(tag)
+    if not m:
+        return None
+    v = float(m.group(1)) * (60 if m.group(2) == "시간" else 1)
+    return v * 0.6 if m.group(3) == "이내" else v * 1.4
+
+
+def wait_tag_minutes(tags: dict[str, int]) -> tuple[Optional[float], int]:
+    """태그 분포의 평균 대기 분과 유효 태그 수."""
+    total = n = 0.0
+    for tag, count in tags.items():
+        m = tag_to_minutes(tag)
+        if m is None or count <= 0:
+            continue
+        total += m * count
+        n += count
+    return (total / n if n else None), int(n)
+
+
+def live_teams_to_index(teams: int) -> float:
+    """실시간 대기 팀 수 → 웨이팅 지수. 0팀=0.05, 5팀≈0.55(보통), 7팀 이상≈김 (판단값)."""
+    if teams <= 0:
+        return 0.05
+    return min(1.0, 0.25 + 0.06 * teams)
 
 
 def minutes_to_index(m: float, cfg: Optional[ScoringConfig] = None) -> float:
@@ -222,7 +284,7 @@ def score_places(
         sp = ScoredPlace(place=p, analysis=a)
         if a.n_texts:
             sp.dish_relevance = a.dish_mentions / a.n_texts
-        if p.total_rating_count < cfg.min_rating_count and a.n_texts < cfg.min_texts and not p.keyword_votes:
+        if p.total_rating_count < cfg.min_rating_count and a.n_texts < cfg.min_texts and not p.vote_stats:
             sp.notes.append("근거 부족(평점·리뷰가 너무 적음)으로 순위 제외")
             excluded.append(sp)
         elif dish_filter and "manual" not in p.sources and a.n_texts >= cfg.relevance_min_texts and a.dish_mentions == 0:
@@ -245,8 +307,8 @@ def score_places(
         if (a.mood.mentions > 0 or a.mood.llm_score is not None)
         and (v := aspect_raw(a.mood, mood_mu, cfg, cfg.mood_salience_ref)) is not None
     }
-    taste_votes = {i: v for i, p in enumerate(ps) if (v := _vote_rate(p, "taste_votes")) is not None}
-    mood_votes = {i: v for i, p in enumerate(ps) if (v := _vote_rate(p, "mood_votes")) is not None}
+    taste_votes = {i: v for i, p in enumerate(ps) if (v := _vote_rate(p, "taste")) is not None}
+    mood_votes = {i: v for i, p in enumerate(ps) if (v := _vote_rate(p, "mood")) is not None}
     popularity = {
         i: math.log1p(p.total_rating_count + (p.blog_total or 0))
         for i, p in enumerate(ps)

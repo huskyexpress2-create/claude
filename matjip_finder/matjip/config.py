@@ -57,8 +57,13 @@ class ScoringConfig:
     wait_component_weights: dict[str, float] = field(
         default_factory=lambda: {
             "rate": 0.35, "direction": 0.25, "blog": 0.25, "popularity": 0.15, "minutes": 0.4,
+            # 실시간 대기 팀 수는 조회 시점의 실측값이라 가장 크게 반영한다.
+            "live": 1.5,
         }
     )
+    # 방문자 리뷰 '대기 시간' 태그: 최대 가중치와 평활 상수 (태그 n건이면 weight * n/(n+prior))
+    wait_tag_weight: float = 1.0
+    wait_tag_prior: float = 5.0
     # 0~1 웨이팅 지수 → 등급 경계
     wait_level_bounds: tuple[float, float, float] = (0.2, 0.4, 0.65)
     low_wait_levels: tuple[str, ...] = ("거의 없음", "짧음")

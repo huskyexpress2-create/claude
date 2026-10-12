@@ -66,8 +66,17 @@ SYSTEM = """당신은 한국 음식점·카페 리뷰를 측면별로 판정하�
 - 리뷰 수가 적거나 언급이 드문 측면은 0.5 쪽으로 보수적으로 매긴다."""
 
 
+# 네이버 검색 API 약관(2026-10-07 개정) 2.3: "데이터를 AI에 입력하거나 … 활용하는 행위" 금지.
+# 검색 API로 받은 블로그 요약문은 Claude로 보내지 않는다.
+LLM_EXCLUDED_SOURCES = {"naver_blog", "naver_blog_waiting"}
+
+
+def llm_texts(place: Place) -> list:
+    return [t for t in place.texts if t.source not in LLM_EXCLUDED_SOURCES]
+
+
 def _format_reviews(place: Place, food: str) -> tuple[str, int]:
-    texts = place.texts[:MAX_TEXTS_PER_PLACE]
+    texts = llm_texts(place)[:MAX_TEXTS_PER_PLACE]
     lines = []
     for i, t in enumerate(texts, 1):
         tag = " [협찬의심]" if t.sponsored else ""
@@ -119,13 +128,19 @@ class ClaudeAnalyzer:
             data = json.loads(text)
         except json.JSONDecodeError:
             return None
-        if len(place.texts) > n:
-            data["_note"] = f"리뷰 {len(place.texts)}건 중 {n}건만 LLM에 전달"
+        allowed = len(llm_texts(place))
+        notes = []
+        if allowed > n:
+            notes.append(f"리뷰 {allowed}건 중 {n}건만 LLM에 전달")
+        if len(place.texts) > allowed:
+            notes.append(f"네이버 검색 API 텍스트 {len(place.texts) - allowed}건은 약관상 LLM에 보내지 않음")
+        if notes:
+            data["_note"] = "; ".join(notes)
         return data
 
     def refine(self, places: list[Place], analyses: list[TextAnalysis], food: str) -> list[Optional[str]]:
         """analyses를 제자리에서 갱신하고, 장소별 메모(없으면 None)를 돌려준다."""
-        todo = [i for i, p in enumerate(places) if p.texts]
+        todo = [i for i, p in enumerate(places) if llm_texts(p)]
         with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
             results = dict(zip(todo, ex.map(lambda i: self._call(places[i], food), todo), strict=True))
         notes: list[Optional[str]] = [None] * len(places)

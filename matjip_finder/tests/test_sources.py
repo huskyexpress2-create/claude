@@ -120,7 +120,8 @@ def test_manual_csv(tmp_path):
     (p,) = load_manual_csv(f)
     assert p.rating_for("kakao").count == 1203
     assert p.rating_for("diningcode").scale == 100.0
-    assert p.keyword_votes == {"taste_votes": 900, "keyword_review_total": 1000}
+    vs = p.vote_stats["manual"]
+    assert (vs.taste, vs.mood, vs.total) == (900, 0, 1000)
     assert p.waiting_minutes == 30 and p.reservable is True
     assert p.awards == ["블루리본 1", "미쉐린"]
     assert [t.text for t in p.texts] == ["맛있어요", "웨이팅 길어요"]

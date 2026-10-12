@@ -9,6 +9,7 @@
   taste_votes, mood_votes, keyword_review_total            네이버 키워드 리뷰
                                                            ("음식이 맛있어요"/"인테리어가 멋져요" 수, 키워드 리뷰 총 참여자 수)
   waiting_minutes   직접 확인한 평균 웨이팅(분). 0이면 웨이팅 없음.
+  live_waiting_teams, observed_at   직접 본 실시간 대기 팀 수와 그 시각(예: 2026-10-12T19:30)
   reservable        true/false
   awards            "|"로 구분. 예) 블루리본 2|미쉐린 빕구르망
   reviews           "|"로 구분한 리뷰 원문
@@ -20,7 +21,7 @@ import csv
 from pathlib import Path
 from typing import Optional
 
-from ..models import DEFAULT_SCALES, Place, PlatformRating, ReviewText
+from ..models import DEFAULT_SCALES, LiveWaiting, Place, PlatformRating, ReviewText, VoteStats
 
 
 def _num(v: Optional[str]) -> Optional[float]:
@@ -71,10 +72,16 @@ def load_manual_csv(path: str | Path) -> list[Place]:
                 count = int(_num(row.get(f"{plat}_count")) or 0)
                 p.ratings.append(PlatformRating(plat, rating, count=count, scale=scale))
 
-            for key in ("taste_votes", "mood_votes", "keyword_review_total"):
-                v = _num(row.get(key))
-                if v is not None:
-                    p.keyword_votes[key] = int(v)
+            total = _num(row.get("keyword_review_total"))
+            if total:
+                p.vote_stats["manual"] = VoteStats(
+                    taste=int(_num(row.get("taste_votes")) or 0),
+                    mood=int(_num(row.get("mood_votes")) or 0),
+                    total=int(total),
+                )
+            teams = _num(row.get("live_waiting_teams"))
+            if teams is not None:
+                p.live_waiting = LiveWaiting(int(teams), "manual", row.get("observed_at", "").strip())
 
             p.awards = [a.strip() for a in row.get("awards", "").split("|") if a.strip()]
             for t in row.get("reviews", "").split("|"):
